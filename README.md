@@ -6,27 +6,27 @@
 - 功能对齐来源：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，本轮固定到 `afaf7bc5daefc98cfa045c0b50d05e17b7ac2053`（2026-10-20）。
 - [进度核对与分阶段迁移](docs/PC2_MIGRATION_PLAN.md) · [代码结构与整理规则](docs/CODE_STRUCTURE.md)。
 
-**P0 已完成；P1 平台层源码迁移和离线验收已完成，PC2 编译及硬件检查待执行；P2–P7 待实施。** 本地已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0 验收记录](docs/migration/P0_ACCEPTANCE.md) 和 [P1 验收记录](docs/migration/P1_ACCEPTANCE.md)。
+**P0 已完成；P1 平台层和 P2 实时定位联锁源码已完成，P2 本机编译及隔离测试通过；PC2 编译与现场检查待执行；P3–P7 待实施。** 保留已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md) 和 [P2 验收记录](docs/migration/P2_ACCEPTANCE.md)。
 
 ## 平台与验证范围
 
 | 用途 | 平台 |
 | --- | --- |
-| 本次检查主机 | Ubuntu 22.04 / Humble / x86_64 / Python 3.10；用于源码迁移和离线检查 |
+| 本次检查主机 | Ubuntu 22.04 / Humble / x86_64 / Python 3.10；用于源码迁移、本机编译及隔离合成测试 |
 | PC2 适配目标 | 按现有源码维护 Ubuntu 20.04 / ROS 2 Foxy / aarch64 / Python 3.8；上机时核实实际系统和依赖版本 |
 | 功能参考版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
 
-对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配。P1 已验证离线脚本、Python 3.8 语法、换目录运行与 CMake 配置生成；未执行 ROS 编译、节点启动或真机控制，PC2 编译和运行结果须单独验收。
+对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配。P1 离线检查与 P2 本机定位/速度桥编译、合成点云及 Dry Run 测试已通过；Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
 
 ## 当前能力
 
 | 模块 | 本地已有 | 待从 Ubuntu 版迁移 |
 | --- | --- | --- |
 | 建图 | MID360、FAST-LIO、PCD 保存和二维地图转换；P1 已统一环境、进程归属和保存确认 | PC2 上机检查；后续整体验收 |
-| 定位 | 人工初始位姿 + NDT；固定起点入口 | 时间同步、新鲜状态、无先验全局定位、多候选确认和诊断 |
-| 导航 | Foxy Nav2、`/cmd_vel_nav`、Dry Run 与真机桥 | 定位失效联锁、机体系速度反馈、`/Odometry_nav`、统一速度参数 |
-| 航点与任务 | 录点、任务校验、顺序导航、取消和恢复标记 | 单点任务结果持久化、双语讲解、人工放行、状态服务 |
-| 巡航 | `g1_cruise.sh` 的多圈、暂停、继续和停止 | 接入新定位状态，保留 PC2 既有巡航能力 |
+| 定位 | 人工初始位姿 + 同步 NDT；三帧确认、实时状态及过期失效；固定起点入口 | 无先验全局定位、多候选确认和诊断 |
+| 导航 | Foxy Nav2、`/cmd_vel_nav`、Dry Run 与真机桥；定位失效关门和旧速度清除 | 机体系速度反馈、`/Odometry_nav`、统一速度参数 |
+| 航点与任务 | 新鲜定位录点、任务校验、顺序导航、取消和恢复标记 | 单点任务结果持久化、双语讲解、人工放行、状态服务 |
+| 巡航 | 多圈、暂停、继续和停止；通过共用任务客户端检查新定位状态 | 后续任务与网页整合，保留 PC2 既有巡航能力 |
 | 语音与网页 | 有厂商语音头文件；没有业务语音包和网页目录 | `g1_audio_bridge`、网页建图/导航/编辑、多设备操作权 |
 
 当前 `start-auto` 仍是读取固定起点文件的旧入口，**不代表已实现无先验全局定位**。新命令语义将在迁移 P3 中处理。
@@ -135,7 +135,7 @@ bash script/g1_cruise.sh plan
 
 巡航的多圈、暂停和停止说明保留在 [g1_cruise_README.md](script/g1_cruise_README.md)。其中原机器的安装路径和历史验证记录仅供追溯，不代表本轮已复验。
 
-真机桥入口为 `script/g1_navigation_real.sh`，`start` 后仍需显式 `enable`。定位失效自动关门等新版能力尚待迁移；现有入口的就绪检查不能等同于新版实时定位联锁。
+真机桥入口为 `script/g1_navigation_real.sh`，`start` 和 `enable` 都检查新鲜定位与 TF；启动后仍需显式 `enable`。导航真机与 Dry Run 配置均启用定位联锁：状态接收/发布时间超过 1 秒、成功扫描超过 3 秒或状态无效时关门并清空速度。恢复定位后必须重新 enable 并发送新的 Twist。
 
 ## 原项目图片
 
@@ -153,11 +153,26 @@ bash script/g1_cruise.sh plan
 
 <img width="1562" height="857" alt="截图 2026-09-20 15-25-19" src="https://github.com/user-attachments/assets/4dba04f2-d4e9-4c2f-b56a-b40f8c8f0dfa" />
 
+## P2 实时定位验收
+
+`/g1_relocalization/status` 使用 reliable / transient-local / depth=1 的 String JSON。仅 `LOCALIZED` 或 `TRACKING` 且 `valid=true` 可就绪，消费者同时核验状态时间和成功扫描时间；TF 刷新、旧日志和单独的 fitness 都不能替代定位证据。
+
+```bash
+# 已加载 PC2 环境后，只检查定位与 TF，不启用运动
+python3 script/g1_wait_localization.py --once --timeout 5 --tf-frame nav_base
+# 完成 PC2 构建并加载对应 install 后，运行合成定位与 Dry Run 联锁测试
+colcon test --build-base build_pc2 --install-base install_pc2 \
+  --packages-select g1_relocalization g1_loco_bridge --event-handlers console_direct+
+colcon test-result --test-result-base build_pc2 --verbose
+```
+
+录点、单点导航、多点任务及巡航继续复用任务包的健康判断。`--max-fitness-age` 的旧参数不能放宽状态 1 秒/成功扫描 3 秒的上限。人工初值需三帧独立同步扫描确认；本阶段 `start-auto` 仍读取固定初值文件。时间与状态契约、测试结果、PC2 检查点和成组回退见 [P2_ACCEPTANCE.md](docs/migration/P2_ACCEPTANCE.md)。
+
 ## 迁移顺序
 
 P0 基线与结构整理 → P1 PC2 环境和路径 → P2 新鲜定位状态与联锁 → P3 全局自动定位 → P4 速度反馈与 Nav2 → P5 语音和任务 → P6 网页控制 → P7 PC2 整体验收。
 
-每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1 已完成源码与离线检查；参考仓库或本机通过的检查不代表 PC2 已通过。
+每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1/P2 已完成源码与本阶段本机检查；参考仓库或本机通过的检查不代表 PC2 已通过。
 
 ## 许可证
 

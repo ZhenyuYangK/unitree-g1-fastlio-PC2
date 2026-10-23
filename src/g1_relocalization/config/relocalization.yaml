@@ -21,3 +21,11 @@ g1_relocalization:
 
     fitness_threshold: 2.0
     localization_period_ms: 500
+    initialization_mode: "manual"
+    # Sensor time and wall time both bound validity. Never raise beyond 3 seconds.
+    max_scan_age_sec: 2.0
+    localization_valid_timeout_sec: 3.0
+    max_odom_sync_gap_sec: 0.1
+    confirmation_scan_count: 3
+    confirmation_max_translation: 0.30
+    confirmation_max_rotation_deg: 10.0

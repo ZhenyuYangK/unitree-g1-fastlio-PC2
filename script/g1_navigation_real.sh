@@ -38,7 +38,8 @@ check_nav()
         exit 1
     }
 
-    echo "[OK] Nav2 已准备好"
+    python3 "$SCRIPT_DIR/g1_wait_localization.py" --once --timeout 5 --tf-frame nav_base
+    echo "[OK] Nav2 和实时定位已准备好"
 }
 
 start_bridge()
@@ -50,6 +51,12 @@ start_bridge()
     local rc=0
     processes status --file "$PID_FILE" || rc=$?
     if [[ "$rc" == 0 ]]; then
+        local existing_guard
+        existing_guard="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run require_localization)"
+        grep -q True <<<"$existing_guard" || {
+            echo '[ERROR] 已运行的桥缺少定位联锁，请重建并重启'
+            return 1
+        }
         echo '[OK] 当前工作空间真机桥已运行'
         return
     fi
@@ -105,6 +112,14 @@ start_bridge()
         exit 1
     }
 
+    local guard
+    guard="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run require_localization)"
+    grep -q True <<<"$guard" || {
+        echo '[ERROR] 真机桥未启用定位联锁，请重建并重启'
+        stop_bridge
+        exit 1
+    }
+
     echo "[OK] 真机安全桥已启动"
     echo "[OK] 安全门当前仍关闭"
 }
@@ -114,6 +129,10 @@ enable_bridge()
     g1_lock_stack
     processes status --file "$PID_FILE"
     load_env
+    check_nav
+    local guard
+    guard="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run require_localization)"
+    grep -q True <<<"$guard" || { echo '[ERROR] 真机桥未启用定位联锁'; return 1; }
 
     echo
     echo "[WARN] 即将允许 Nav2 控制真实 G1"

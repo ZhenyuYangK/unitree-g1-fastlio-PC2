@@ -3,6 +3,10 @@ g1_cmd_vel_dry_run:
     cmd_vel_topic: /cmd_vel_nav
     enable_service_name: /g1_loco_bridge/enable
     dry_run: true
+    require_localization: true
+    localization_status_topic: /g1_relocalization/status
+    localization_status_timeout_sec: 1.0
+    localization_success_timeout_sec: 3.0
     allow_reverse: false
     allow_lateral: false
     unitree_command_duration_sec: 0.3

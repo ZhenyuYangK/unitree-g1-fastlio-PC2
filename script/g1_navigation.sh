@@ -288,24 +288,8 @@ PY
     "{header: {frame_id: map}, pose: {pose: {position: {x: ${AUTO_X}, y: ${AUTO_Y}, z: ${AUTO_Z}}, orientation: {x: 0.0, y: 0.0, z: ${qz}, w: ${qw}}}, covariance: [0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.25, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0685]}}"
 }
 
-wait_for_ndt_success() {
-  local timeout_sec="${1:-300}"
-  local elapsed=0
-  local log_file="${LOG_DIR}/relocalization.log"
-
-  say "等待 NDT 定位成功，最长 ${timeout_sec} 秒"
-
-  while (( elapsed < timeout_sec )); do
-    if [[ -f "${log_file}" ]] && grep -q "NDT success" "${log_file}"; then
-      ok "检测到 NDT success"
-      tail -n 5 "${log_file}" | grep -E "Received initial pose|NDT success" || true
-      return 0
-    fi
-    sleep 1
-    ((elapsed += 1))
-  done
-
-  return 1
+wait_for_localization() {
+  python3 "${SCRIPT_DIR}/g1_wait_localization.py" --timeout "${1:-5}" --tf-frame body
 }
 
 start_base_stack() {
@@ -393,15 +377,7 @@ wait_nav2_active() {
 }
 
 check_tf_chain() {
-  local tf_log="${RUNTIME_DIR}/tf_map_nav_base.txt"
-  timeout 10 ros2 run tf2_ros tf2_echo map nav_base >"${tf_log}" 2>&1 || true
-
-  if grep -q "Translation:" "${tf_log}"; then
-    ok "TF 链 map -> nav_base 可用"
-  else
-    cat "${tf_log}" >&2
-    die "TF 链 map -> nav_base 不可用"
-  fi
+  python3 "${SCRIPT_DIR}/g1_wait_localization.py" --once --timeout 5 --tf-frame nav_base
 }
 
 start_nav2_stack() {
@@ -411,9 +387,7 @@ start_nav2_stack() {
   processes status --file "$PID_FILE" --name relocalization \
     || die '缺少本工作空间可验证的定位进程，请先 start'
 
-  if ! grep -q "NDT success" "${LOG_DIR}/relocalization.log" 2>/dev/null; then
-    die "尚未检测到 NDT success，请先完成 2D Pose Estimate"
-  fi
+  wait_for_localization 5 || die "当前定位未确认或已过期，请完成 2D Pose Estimate"
 
   if timeout 4 ros2 node list 2>/dev/null | grep -Fxq /controller_server; then
     warn "Nav2 已经运行，跳过重复启动"
@@ -453,6 +427,12 @@ start_nav2_stack() {
     fi
   fi
 
+  if [[ "${with_dry}" == "yes" ]]; then
+    local guard_value
+    guard_value="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run require_localization 2>/dev/null || true)"
+    grep -q "True" <<<"${guard_value}" || die "安全桥未启用定位联锁，请重建并重启桥"
+  fi
+
   echo
   ok "导航系统已准备完成"
   say "发送目标前先确认 RViz Fixed Frame=map"
@@ -470,8 +450,8 @@ start_sequence() {
 
   start_base_stack "${init_mode}"
 
-  if ! wait_for_ndt_success 300; then
-    warn "等待 NDT 成功超时，但定位基础节点保持运行"
+  if ! wait_for_localization 300; then
+    warn "等待有效定位超时，但定位基础节点保持运行"
     warn "完成 RViz 初始化后执行："
     if [[ "${with_dry}" == "yes" ]]; then
       warn "  ${SCRIPT_DIR}/g1_navigation.sh continue-dry"
@@ -490,6 +470,10 @@ enable_dry() {
   dry_value="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run dry_run 2>/dev/null || true)"
   grep -q "True" <<<"${dry_value}" || die "Dry Run 节点不存在或 dry_run 不是 True"
 
+  check_tf_chain
+  local guard_value
+  guard_value="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run require_localization 2>/dev/null || true)"
+  grep -q "True" <<<"${guard_value}" || die "安全桥未启用定位联锁"
   ros2 service call \
     /g1_loco_bridge/enable \
     std_srvs/srv/SetBool \

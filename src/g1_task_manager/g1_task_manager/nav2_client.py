@@ -7,7 +7,8 @@ from nav2_msgs.action import NavigateToPose
 from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.time import Time
-from std_msgs.msg import Float64
+from std_msgs.msg import Float64, String
+from rclpy.qos import QoSProfile, QoSDurabilityPolicy, QoSReliabilityPolicy
 from tf2_ros import Buffer
 from tf2_ros import TransformListener
 
@@ -80,6 +81,12 @@ class Nav2WaypointClient(Node):
 
         self.latest_fitness = None
         self.latest_fitness_time = None
+        self.localization_status = None
+        self.localization_status_time = None
+        self.status_subscription = self.create_subscription(
+            String, '/g1_relocalization/status', self._status_callback,
+            QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
+                       durability=QoSDurabilityPolicy.TRANSIENT_LOCAL))
 
         self.fitness_subscription = (
             self.create_subscription(
@@ -96,6 +103,11 @@ class Nav2WaypointClient(Node):
     def _fitness_callback(self, message):
         self.latest_fitness = float(message.data)
         self.latest_fitness_time = time.monotonic()
+
+    def _status_callback(self, message):
+        from .health import parse_localization_status
+        self.localization_status = parse_localization_status(message.data)
+        self.localization_status_time = time.monotonic()
 
     def wait_until_ready(
         self,
@@ -176,7 +188,14 @@ class Nav2WaypointClient(Node):
         check_gap = check_started - getattr(
             self, "_previous_health_check", check_started)
         self._previous_health_check = check_started
-        from .health import health_reason
+        from .health import health_reason, localization_status_reason
+        status_age = (None if self.localization_status_time is None else
+                      time.monotonic() - self.localization_status_time)
+        reason = localization_status_reason(self.localization_status, status_age,
+                                           self.get_clock().now().nanoseconds,
+                                           max_fitness_age_sec)
+        if reason:
+            raise Nav2NavigationError(reason)
         try:
             transform = self.tf_buffer.lookup_transform(
                 self.global_frame, self.base_frame, Time())
@@ -320,6 +339,8 @@ class Nav2WaypointClient(Node):
 
         goal = NavigateToPose.Goal()
 
+        self.check_health()
+
         goal.pose.header.frame_id = (
             self.global_frame
         )
@@ -397,6 +418,12 @@ class Nav2WaypointClient(Node):
                 self,
                 timeout_sec=0.1,
             )
+
+            try:
+                self.check_health()
+            except Nav2NavigationError:
+                self.cancel_active_goal()
+                raise
 
             elapsed = (
                 time.monotonic() - start_time

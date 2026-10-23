@@ -6,6 +6,7 @@ if(NOT CMAKE_CXX_STANDARD)
 endif()
 
 find_package(ament_cmake REQUIRED)
+find_package(Eigen3 REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
@@ -53,6 +54,7 @@ ament_target_dependencies(
 target_link_libraries(
   g1_relocalization_node
   ${PCL_LIBRARIES}
+  Eigen3::Eigen
 )
 
 install(
@@ -64,5 +66,21 @@ install(
   DIRECTORY launch config
   DESTINATION share/${PROJECT_NAME}
 )
+
+install(DIRECTORY include/ DESTINATION include)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  find_package(ament_cmake_pytest REQUIRED)
+  find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  ament_add_gtest(test_pose_buffer test/test_pose_buffer.cpp)
+  target_link_libraries(test_pose_buffer Eigen3::Eigen)
+  ament_add_pytest_test(test_wait_localization test/test_wait_localization.py)
+  ament_add_test(test_relocalization_node
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_relocalization_node.py"
+      --node $<TARGET_FILE:g1_relocalization_node>
+    TIMEOUT 180)
+endif()
 
 ament_package()

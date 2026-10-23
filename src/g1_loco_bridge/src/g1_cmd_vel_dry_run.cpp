@@ -1,14 +1,18 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
 #include <stdexcept>
 
 #include <geometry_msgs/msg/twist.hpp>
+#include <nlohmann/json.hpp>
 #include <rclcpp/rclcpp.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <std_srvs/srv/set_bool.hpp>
 
 #include "g1_loco_bridge/dry_run_backend.hpp"
@@ -34,6 +38,14 @@ public:
     dry_run_ = declare_parameter<bool>(
       "dry_run",
       true);
+
+    require_localization_ = declare_parameter<bool>("require_localization", false);
+    localization_status_topic_ = declare_parameter<std::string>(
+      "localization_status_topic", "/g1_relocalization/status");
+    localization_status_timeout_sec_ = declare_parameter<double>(
+      "localization_status_timeout_sec", 1.0);
+    localization_success_timeout_sec_ = declare_parameter<double>(
+      "localization_success_timeout_sec", 3.0);
 
     allow_reverse_ = declare_parameter<bool>(
       "allow_reverse",
@@ -143,6 +155,16 @@ public:
           &G1CmdVelDryRun::cmd_vel_callback,
           this,
           std::placeholders::_1));
+
+    if (require_localization_) {
+      localization_subscription_ = create_subscription<std_msgs::msg::String>(
+        localization_status_topic_, rclcpp::QoS(1).reliable().transient_local(),
+        std::bind(&G1CmdVelDryRun::localization_callback, this, std::placeholders::_1));
+      RCLCPP_WARN(
+        get_logger(), "Localization guard REQUIRED: %s, status timeout %.2f s, "
+        "successful scan timeout %.2f s.", localization_status_topic_.c_str(),
+        localization_status_timeout_sec_, localization_success_timeout_sec_);
+    }
 
     enable_service_ =
       create_service<std_srvs::srv::SetBool>(
@@ -474,6 +496,12 @@ private:
       reject("enable_service_name must not be empty.");
     }
 
+    if (localization_status_topic_.empty()) {
+      reject("localization_status_topic must not be empty.");
+    }
+    require_positive("localization_status_timeout_sec", localization_status_timeout_sec_);
+    require_positive("localization_success_timeout_sec", localization_success_timeout_sec_);
+
     require_positive(
       "command_timeout_sec",
       command_timeout_sec_);
@@ -628,9 +656,136 @@ private:
     }
   }
 
+  // JSON timestamps must be exact positive int64 nanoseconds, never floating point,
+  // booleans or strings. Avoid wrapping an unsigned JSON value during conversion.
+  static bool read_stamp_ns(
+    const nlohmann::json & status, const char * field, int64_t & value)
+  {
+    if (!status.contains(field) || !status.at(field).is_number_integer()) {
+      return false;
+    }
+    const auto & stamp = status.at(field);
+    if (stamp.is_number_unsigned()) {
+      const uint64_t unsigned_value = stamp.get<uint64_t>();
+      if (unsigned_value > static_cast<uint64_t>(std::numeric_limits<int64_t>::max())) {
+        return false;
+      }
+      value = static_cast<int64_t>(unsigned_value);
+    } else {
+      value = stamp.get<int64_t>();
+    }
+    return value > 0;
+  }
+
+  bool localization_is_valid_locked(std::string & reason)
+  {
+    if (!require_localization_) {
+      return true;
+    }
+    if (!localization_received_ || !localization_valid_) {
+      reason = localization_reason_;
+      return false;
+    }
+    if (std::chrono::duration<double>(
+        std::chrono::steady_clock::now() - localization_receive_time_).count() >
+      localization_status_timeout_sec_)
+    {
+      reason = "localization status receive watchdog expired";
+      return false;
+    }
+    const int64_t ros_now_ns = get_clock()->now().nanoseconds();
+    if (ros_now_ns <= 0 || localization_stamp_ns_ > ros_now_ns ||
+      localization_success_stamp_ns_ > ros_now_ns)
+    {
+      reason = "localization status or successful scan is in the future";
+      return false;
+    }
+    const double status_age = static_cast<double>(ros_now_ns - localization_stamp_ns_) * 1e-9;
+    const double scan_age = static_cast<double>(ros_now_ns - localization_success_stamp_ns_) * 1e-9;
+    if (status_age > localization_status_timeout_sec_) {
+      reason = "localization status ROS timestamp expired";
+      return false;
+    }
+    if (scan_age > localization_success_timeout_sec_) {
+      reason = "last successful localization scan expired";
+      return false;
+    }
+    return true;
+  }
+
+  void stop_backend_for_localization(const std::string & reason)
+  {
+    // Never hold data_mutex_ when entering a backend. Its worker has its own lock.
+    if (backend_) {
+      (void)backend_->set_enabled(false);
+      backend_->request_stop("localization guard: " + reason);
+    }
+    RCLCPP_ERROR(
+      get_logger(), "Localization guard DISABLED both safety gates: %s. "
+      "Output forced to zero; explicit re-enable and a fresh Twist are required.",
+      reason.c_str());
+  }
+
+  void enforce_localization_guard()
+  {
+    bool stopped = false;
+    std::string reason;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      if (enabled_ && !localization_is_valid_locked(reason)) {
+        enabled_ = false;
+        force_zero_locked();
+        timeout_reported_ = false;
+        disabled_input_reported_ = false;
+        stopped = true;
+      }
+    }
+    if (stopped) {
+      stop_backend_for_localization(reason);
+    }
+  }
+
+  void localization_callback(const std_msgs::msg::String::SharedPtr message)
+  {
+    const auto status = nlohmann::json::parse(message->data, nullptr, false);
+    int64_t stamp_ns = 0;
+    int64_t success_stamp_ns = 0;
+    bool valid = false;
+    std::string reason = "malformed localization status JSON or field types";
+    if (status.is_object() && status.contains("state") && status.at("state").is_string() &&
+      status.contains("valid") && status.at("valid").is_boolean() &&
+      read_stamp_ns(status, "stamp_ns", stamp_ns) &&
+      read_stamp_ns(status, "last_success_stamp_ns", success_stamp_ns))
+    {
+      const auto state = status.at("state").get<std::string>();
+      valid = status.at("valid").get<bool>() && (state == "LOCALIZED" || state == "TRACKING");
+      reason = "localization state " + state + " is not valid for navigation";
+      if (success_stamp_ns > stamp_ns) {
+        valid = false;
+        reason = "successful scan timestamp is newer than localization status";
+      }
+      const int64_t ros_now_ns = get_clock()->now().nanoseconds();
+      if (ros_now_ns <= 0 || stamp_ns > ros_now_ns || success_stamp_ns > ros_now_ns) {
+        valid = false;
+        reason = "localization status or successful scan is in the future";
+      }
+    }
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      localization_received_ = true;
+      localization_valid_ = valid;
+      localization_reason_ = reason;
+      localization_stamp_ns_ = stamp_ns;
+      localization_success_stamp_ns_ = success_stamp_ns;
+      localization_receive_time_ = std::chrono::steady_clock::now();
+    }
+    enforce_localization_guard();
+  }
+
   void cmd_vel_callback(
     const geometry_msgs::msg::Twist::SharedPtr message)
   {
+    enforce_localization_guard();
     if (!twist_is_finite(*message)) {
       {
         std::lock_guard<std::mutex> lock(data_mutex_);
@@ -710,6 +865,7 @@ private:
       sanitize_command(*message);
 
     bool report_disabled = false;
+    bool accepted = false;
 
     {
       std::lock_guard<std::mutex> lock(data_mutex_);
@@ -729,6 +885,7 @@ private:
         command_received_ = true;
         timeout_reported_ = false;
         disabled_input_reported_ = false;
+        accepted = true;
       }
     }
 
@@ -742,7 +899,7 @@ private:
         message->angular.z);
     }
 
-    if (report_disabled) {
+    if (!accepted) {
       return;
     }
 
@@ -765,6 +922,24 @@ private:
     std_srvs::srv::SetBool::Response::SharedPtr response)
   {
     const bool enable_requested = request->data;
+
+    std::string localization_reason;
+    bool localization_ready = true;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      localization_ready = localization_is_valid_locked(localization_reason);
+      if (enable_requested && !localization_ready) {
+        enabled_ = false;
+        force_zero_locked();
+        disabled_input_reported_ = false;
+      }
+    }
+    if (enable_requested && !localization_ready) {
+      stop_backend_for_localization(localization_reason);
+      response->success = false;
+      response->message = "Enable rejected by localization guard: " + localization_reason;
+      return;
+    }
 
     /*
      * Ask the backend first. A real backend may reject enabling
@@ -838,6 +1013,7 @@ private:
 
   void control_callback()
   {
+    enforce_localization_guard();
     geometry_msgs::msg::Twist raw_snapshot;
     geometry_msgs::msg::Twist target_snapshot;
     geometry_msgs::msg::Twist output_snapshot;
@@ -983,6 +1159,11 @@ private:
 
   std::string cmd_vel_topic_;
   std::string enable_service_name_;
+  std::string localization_status_topic_;
+
+  bool require_localization_{false};
+  double localization_status_timeout_sec_{1.0};
+  double localization_success_timeout_sec_{3.0};
 
   bool dry_run_{true};
   bool allow_reverse_{false};
@@ -1018,6 +1199,8 @@ private:
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr
     subscription_;
 
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr localization_subscription_;
+
   rclcpp::Service<std_srvs::srv::SetBool>::SharedPtr
     enable_service_;
 
@@ -1046,6 +1229,13 @@ private:
   bool command_received_{false};
   bool timeout_reported_{false};
   bool disabled_input_reported_{false};
+
+  bool localization_received_{false};
+  bool localization_valid_{false};
+  int64_t localization_stamp_ns_{0};
+  int64_t localization_success_stamp_ns_{0};
+  std::chrono::steady_clock::time_point localization_receive_time_;
+  std::string localization_reason_{"no localization status received"};
 
   std::size_t invalid_command_count_{0};
 };

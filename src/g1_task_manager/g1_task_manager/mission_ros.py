@@ -114,6 +114,7 @@ class MissionTransport:
             raise MissionError('Nav2已有活动目标，请先结束原任务；本任务不会取消其他客户端的目标')
 
     def prepare_goal(self, step):
+        self.node.check_health(**self.health_limits)
         pose = step['goal']['pose']
         goal = NavigateToPose.Goal()
         goal.pose.header.frame_id = self.node.global_frame

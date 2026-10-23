@@ -11,6 +11,9 @@
 
   <depend>rclcpp</depend>
   <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>ament_cmake_test</test_depend>
   <depend>std_srvs</depend>
   <depend>unitree_api</depend>
 
