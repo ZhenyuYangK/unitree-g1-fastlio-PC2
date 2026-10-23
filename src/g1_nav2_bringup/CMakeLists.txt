@@ -4,7 +4,7 @@ project(g1_nav2_bringup)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY launch config rviz rviz
+  DIRECTORY launch config rviz behavior_trees
   DESTINATION share/${PROJECT_NAME}
 )
 

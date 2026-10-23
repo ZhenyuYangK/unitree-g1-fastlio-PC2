@@ -2,7 +2,7 @@
 # 单文件巡航入口；Python 内嵌，复用当前 g1_task_manager 源码。
 set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-export G1_WS="${G1_WS:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+source "${SCRIPT_DIR}/g1_env.sh"
 RUN=(/usr/bin/python3 -)
 needs_ros=0
 if [[ "${1:-}" == start ]]; then
@@ -12,17 +12,7 @@ if [[ "${1:-}" == start ]]; then
   done
 fi
 if [[ "$needs_ros" == 1 ]]; then
-  if [[ -f "$G1_WS/script/g1_run_verified.sh" ]]; then
-    RUN=(bash "$G1_WS/script/g1_run_verified.sh" /usr/bin/python3 -)
-  else
-    [[ -f /opt/ros/foxy/setup.bash && -f "$G1_WS/install/setup.bash" ]] || {
-      echo '[ERROR] 未找到 Foxy 或当前工作空间 install/setup.bash' >&2; exit 2;
-    }
-    set +u
-    source /opt/ros/foxy/setup.bash
-    source "$G1_WS/install/setup.bash"
-    set -u
-  fi
+  g1_source_environment
 fi
 exec "${RUN[@]}" "$@" <<'G1_CRUISE_PYTHON'
 """PC2 cruise coordinator. Python 3.8, embedded in g1_cruise.sh."""

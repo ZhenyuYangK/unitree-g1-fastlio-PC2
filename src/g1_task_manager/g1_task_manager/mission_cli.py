@@ -11,15 +11,7 @@ from .mission_store import load_missions
 from .waypoint_store import WaypointConfigError
 
 
-DEFAULT_WS = Path('/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws')
-
-
-def workspace():
-    return Path(os.environ.get('G1_WS', os.environ.get('WS', str(DEFAULT_WS))))
-
-
-def default_missions_file():
-    return str(Path(os.environ.get('G1_MISSIONS_FILE', str(workspace() / 'task_data/missions/missions.yaml'))))
+from .paths import default_missions_file, workspace
 
 
 def add_parsers(subparsers):

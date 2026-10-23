@@ -1,40 +1,53 @@
 #!/usr/bin/env bash
-set -euo pipefail
-
+# 仅恢复显式选择的原生 SDK 库；当前 ROS2 桥不需要运行本脚本。
+set -Eeuo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd -- "${SCRIPT_DIR}/.." && pwd)"
+source "$SCRIPT_DIR/g1_env.sh"
+exec python3 - "$@" <<'PY'
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import platform
+import tarfile
+import tempfile
 
-restore_library() {
-  local arch="$1"
-  local expected_sha256="$2"
-  local library_dir="${REPO_ROOT}/third_party/unitree_sdk2_native/lib/${arch}"
-  local archive="${library_dir}/libunitree_sdk2.a.tar.gz"
-  local library="${library_dir}/libunitree_sdk2.a"
-  local actual_sha256=""
-
-  if [[ -f "${library}" ]]; then
-    actual_sha256="$(sha256sum "${library}" | awk '{print $1}')"
-    if [[ "${actual_sha256}" == "${expected_sha256}" ]]; then
-      printf 'Unitree library already restored: %s\n' "${library}"
-      return
-    fi
-    printf 'Existing library checksum mismatch; restoring: %s\n' "${library}" >&2
-  fi
-
-  if [[ ! -f "${archive}" ]]; then
-    printf 'Missing vendor archive: %s\n' "${archive}" >&2
-    return 1
-  fi
-
-  tar -xzf "${archive}" -C "${library_dir}"
-  actual_sha256="$(sha256sum "${library}" | awk '{print $1}')"
-  if [[ "${actual_sha256}" != "${expected_sha256}" ]]; then
-    printf 'Checksum verification failed: %s\n' "${library}" >&2
-    return 1
-  fi
-
-  printf 'Restored and verified: %s\n' "${library}"
-}
-
-restore_library aarch64 d721872acb95bab68ccd7d4856046db17747c40915e5e0490bdd7812ed7356ca
-restore_library x86_64 ba018518707f511ddd47558ba4d5609e968c30998d3c52abe2e650ba4aab229d
+p = argparse.ArgumentParser(description='校验/恢复可选 Unitree SDK2 静态库；不联网、不链接 DDS')
+p.add_argument('--arch', choices=('aarch64', 'x86_64'), default=platform.machine())
+p.add_argument('--check', action='store_true', help='只读校验，不解压')
+a = p.parse_args()
+root = Path(os.environ['G1_WS'])
+try:
+    item = json.loads((root / 'third_party/vendor_manifest.json').read_text())['optional_native_libraries'][a.arch]
+    path = root / item['path']
+    digest = lambda data: hashlib.sha256(data).hexdigest()
+    if path.exists():
+        if digest(path.read_bytes()) != item['sha256']:
+            raise RuntimeError('已有 SDK 库校验失败；未覆盖：{}'.format(path))
+    else:
+        if a.check:
+            raise RuntimeError('缺少可选 SDK 静态库：{}'.format(path))
+        archive = path.with_name(path.name + '.tar.gz')
+        if not archive.is_file():
+            raise RuntimeError('本地未提供压缩库：{}；当前 ROS2 桥无需此库'.format(archive))
+        with tarfile.open(str(archive), 'r:gz') as stream:
+            entries = stream.getmembers()
+            if len(entries) != 1 or not entries[0].isfile() or Path(entries[0].name).name != path.name or entries[0].size != item['bytes']:
+                raise RuntimeError('压缩库包含非预期内容')
+            data = stream.extractfile(entries[0]).read()
+        if digest(data) != item['sha256']:
+            raise RuntimeError('压缩库内容 SHA-256 不匹配')
+        fd, name = tempfile.mkstemp(dir=str(path.parent), prefix='.' + path.name)
+        try:
+            with os.fdopen(fd, 'wb') as output:
+                output.write(data)
+                output.flush()
+                os.fsync(output.fileno())
+            os.replace(name, str(path))
+        finally:
+            if os.path.exists(name): os.unlink(name)
+    print('[OK] {} {}'.format(a.arch, item['sha256']))
+except (OSError, ValueError, KeyError, tarfile.TarError, RuntimeError) as error:
+    p.exit(1, '[ERROR] {}\n'.format(error))
+PY

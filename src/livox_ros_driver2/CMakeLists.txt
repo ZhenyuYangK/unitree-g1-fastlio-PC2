@@ -246,12 +246,17 @@ else(ROS_EDITION STREQUAL "ROS2")
   )
 
   ## make sure the livox_lidar_sdk_shared library is installed
-  find_library(LIVOX_LIDAR_SDK_LIBRARY liblivox_lidar_sdk_shared.so /usr/local/lib REQUIRED)
+  find_library(LIVOX_LIDAR_SDK_LIBRARY liblivox_lidar_sdk_shared.so /usr/local/lib)
 
   ##
   find_path(LIVOX_LIDAR_SDK_INCLUDE_DIR
     NAMES "livox_lidar_api.h" "livox_lidar_def.h"
-    REQUIRED)
+    )
+
+  # Foxy / Ubuntu 20.04 的 CMake 3.16 不支持 find_library/find_path REQUIRED。
+  if(NOT LIVOX_LIDAR_SDK_LIBRARY OR NOT LIVOX_LIDAR_SDK_INCLUDE_DIR)
+    message(FATAL_ERROR "Missing local Livox SDK2; build with script/g1_build.sh")
+  endif()
 
   ## PCL library
   link_directories(${PCL_LIBRARY_DIRS})

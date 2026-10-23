@@ -1,7 +1,5 @@
 import argparse
-import os
 import sys
-from pathlib import Path
 
 from g1_task_manager.waypoint_recorder import (
     WaypointRecordError,
@@ -12,29 +10,11 @@ from g1_task_manager.waypoint_store import (
     WaypointStore,
 )
 
-
-DEFAULT_WS = Path(
-    "/home/g1test/Desktop/irongroup/yzy/"
-    "g1_slam_ws_source/g1_slam_ws"
-)
+from .paths import default_waypoints_file
 
 
 def get_default_waypoints_file():
-    explicit_file = os.environ.get(
-        "G1_WAYPOINTS_FILE"
-    )
-
-    if explicit_file:
-        return Path(explicit_file)
-
-    workspace = Path(
-        os.environ.get("G1_WS", str(DEFAULT_WS))
-    )
-
-    return (
-        workspace
-        / "task_data/maps/laboratory_map_v1/waypoints.yaml"
-    )
+    return default_waypoints_file()
 
 
 def build_parser():

@@ -16,6 +16,10 @@ def generate_launch_description():
 
     params_file = LaunchConfiguration("params_file")
     use_sim_time = LaunchConfiguration("use_sim_time")
+    behavior_tree = os.path.join(
+        get_package_share_directory("g1_nav2_bringup"),
+        "behavior_trees", "navigate_g1_timeout.xml",
+    )
 
     nav2_nodes = [
         "controller_server",
@@ -82,7 +86,8 @@ def generate_launch_description():
             executable="bt_navigator",
             name="bt_navigator",
             output="screen",
-            parameters=[params_file, {"use_sim_time": use_sim_time}],
+            parameters=[params_file, {"use_sim_time": use_sim_time,
+                                      "default_bt_xml_filename": behavior_tree}],
         ),
 
         Node(

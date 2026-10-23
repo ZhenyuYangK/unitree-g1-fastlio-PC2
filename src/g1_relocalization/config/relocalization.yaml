@@ -1,6 +1,6 @@
 g1_relocalization:
   ros__parameters:
-    map_path: "/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws/maps/map.pcd"
+    map_path: ""  # 由运行脚本或 launch 注入路径
 
     global_frame: "map"
     odom_frame: "camera_init"

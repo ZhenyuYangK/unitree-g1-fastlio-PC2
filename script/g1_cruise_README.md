@@ -7,7 +7,8 @@
 将 g1_cruise_scripts.tar.gz 放到 PC2 主目录：
 
 ```bash
-export WS=/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws
+export G1_WS="$(pwd)"
+export WS="$G1_WS"  # 在工作空间根目录运行
 export G1_WS="$WS"
 tar -xzf "$HOME/g1_cruise_scripts.tar.gz" -C "$WS"
 bash "$WS/script/g1_cruise.sh" help
@@ -37,7 +38,8 @@ start 保持前台运行，请保留这个终端。运行前应结束已有任�
 每个终端都设置相同的 WS、G1_WS，并使用相同用户：
 
 ```bash
-export WS=/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws
+export G1_WS="$(pwd)"
+export WS="$G1_WS"  # 在工作空间根目录运行
 export G1_WS="$WS"
 
 bash "$WS/script/g1_cruise.sh" pause

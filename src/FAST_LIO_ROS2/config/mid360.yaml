@@ -7,7 +7,7 @@
         filter_size_map: 0.5
         cube_side_length: 1000.0
         runtime_pos_log_enable: false
-        map_file_path: "/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws/maps/map.pcd"
+        map_file_path: ""  # 由运行脚本或 launch 注入路径
 
         common:
             lid_topic:  "/livox/lidar"

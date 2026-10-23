@@ -113,7 +113,9 @@ def main():
     bt["global_frame"] = "map"
     bt["robot_base_frame"] = "nav_base"
     bt["odom_topic"] = "/Odometry"
-    bt["default_bt_xml_filename"] = "/opt/ros/foxy/share/nav2_bt_navigator/behavior_trees/navigate_w_replanning_and_recovery.xml"
+    bt["default_bt_xml_filename"] = str(
+        Path(__file__).resolve().parents[1] / "behavior_trees/navigate_g1_timeout.xml"
+    )
 
     recoveries = node_params(data, "recoveries_server")
     recoveries["use_sim_time"] = False

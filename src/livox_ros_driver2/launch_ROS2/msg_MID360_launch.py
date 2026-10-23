@@ -16,7 +16,8 @@ cmdline_bd_code = 'livox0000000001'
 
 cur_path = os.path.split(os.path.realpath(__file__))[0] + '/'
 cur_config_path = cur_path + '../config'
-user_config_path = os.path.join(cur_config_path, 'MID360_config.json')
+# 运行脚本先校验 PC2 网卡/IP 并生成此文件；直接 launch 也须显式指定。
+user_config_path = os.environ.get('G1_LIVOX_CONFIG', '')
 ################### user configure parameters for ros2 end #####################
 
 livox_ros2_params = [
@@ -33,6 +34,8 @@ livox_ros2_params = [
 
 
 def generate_launch_description():
+    if not user_config_path or not os.path.isfile(user_config_path):
+        raise RuntimeError('请先用 g1_livox_config.py 生成 G1_LIVOX_CONFIG，禁止沿用旧主机地址')
     livox_driver = Node(
         package='livox_ros_driver2',
         executable='livox_ros_driver2_node',

@@ -38,6 +38,8 @@
 #include <thread>
 #include <fstream>
 #include <csignal>
+#include <cstdio>
+#include <exception>
 #include <chrono>
 #include <unistd.h>
 #include <Python.h>
@@ -606,10 +608,14 @@ void publish_map(rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub
     // pubLaserCloudMap->publish(laserCloudMap);
 }
 
-void save_to_pcd()
+bool save_to_pcd()
 {
+    if (map_file_path.empty() || pcl_wait_pub->empty()) return false;
     pcl::PCDWriter pcd_writer;
-    pcd_writer.writeBinary(map_file_path, *pcl_wait_pub);
+    const std::string temporary = map_file_path + ".tmp";
+    if (pcd_writer.writeBinary(temporary, *pcl_wait_pub) < 0) return false;
+    if (std::rename(temporary.c_str(), map_file_path.c_str()) != 0) return false;
+    return true;
 }
 
 template<typename T>
@@ -1133,9 +1139,13 @@ private:
         RCLCPP_INFO(this->get_logger(), "Saving map to %s...", map_file_path.c_str());
         if (pcd_save_en)
         {
-            save_to_pcd();
-            res->success = true;
-            res->message = "Map saved.";
+            try {
+                res->success = save_to_pcd();
+                res->message = res->success ? "Map saved." : "Map empty, output path missing or PCD write failed.";
+            } catch (const std::exception &error) {
+                res->success = false;
+                res->message = error.what();
+            }
         }
         else
         {

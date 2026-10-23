@@ -53,7 +53,7 @@ bt_navigator:
     enable_groot_monitoring: true
     groot_zmq_publisher_port: 1666
     groot_zmq_server_port: 1667
-    default_bt_xml_filename: "/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws/src/g1_nav2_bringup/behavior_trees/navigate_g1_timeout.xml"
+    default_bt_xml_filename: ""  # launch 从包 share 目录解析
     plugin_lib_names:
     - nav2_compute_path_to_pose_action_bt_node
     - nav2_follow_path_action_bt_node

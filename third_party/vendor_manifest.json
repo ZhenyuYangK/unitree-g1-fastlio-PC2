@@ -1,0 +1,268 @@
+{
+  "schema": 1,
+  "recorded_on": "2026-10-23",
+  "target": "aarch64 / ROS 2 Foxy",
+  "files": {
+    "third_party/unitree_ros2_example_include/g1/g1.hpp": {
+      "sha256": "3f6b978f488355d4442fb088c434788aa39a3d6edfa46301f5ccfc210666d85f"
+    },
+    "third_party/unitree_ros2_example_include/g1/g1_arm_action_client.hpp": {
+      "sha256": "e0b29c5d923714ef1fa7747ae466fe1bc77fd3ffb0483028a0893a2f294912b8"
+    },
+    "third_party/unitree_ros2_example_include/g1/g1_audio_client.hpp": {
+      "sha256": "ab93476396064087caae177625b6c7c7720bb4569793c4ab9835a81bce21a39c"
+    },
+    "third_party/unitree_ros2_example_include/g1/g1_loco_client.hpp": {
+      "sha256": "397f0ba8abe135f540e2115db6570c712024757024719c35ea780f83e7da6cee"
+    },
+    "third_party/unitree_ros2_example_include/g1/g1_motion_switch_client.hpp": {
+      "sha256": "113301fdd8f0138f3abef224b6a7067b19ed86dc9a29e776e804e0018eacdf83"
+    },
+    "third_party/unitree_ros2_example_include/common/b2_base_client.hpp": {
+      "sha256": "81797958d886a5a60edf4e244ab0e7ebfd6e01b9768423bd56c22f1c5b06a268"
+    },
+    "third_party/unitree_ros2_example_include/common/base_client.hpp": {
+      "sha256": "fc73ec6dc18f7c7b4747feaf7d31550ca88d4ad09a56a362ba1d213afe81fbc4"
+    },
+    "third_party/unitree_ros2_example_include/common/motor_crc.h": {
+      "sha256": "a9cc6b1a578535500716264149ab5e495b9bea4c0d1d66e23b21d216a14460c4"
+    },
+    "third_party/unitree_ros2_example_include/common/motor_crc_hg.h": {
+      "sha256": "df02bdc4fd20f34a3ff055ddf017a0fc78ab413d28eacbeacffc11a3d4756d97"
+    },
+    "third_party/unitree_ros2_example_include/common/patch.hpp": {
+      "sha256": "652f13f9a074be40afec3d65ee1abcd4019de5c275823a8fc2c89d1ea9a99d89"
+    },
+    "third_party/unitree_ros2_example_include/common/ros2_b2_sport_client.h": {
+      "sha256": "a09451ed80c82b00563a757c51e721ead999d73bb16ca4fa89b691a9aa34479e"
+    },
+    "third_party/unitree_ros2_example_include/common/ros2_robot_state_client.h": {
+      "sha256": "ce8f146e8c165d478d16a8f031128c80bf4934719177edd6eda699520d15a523"
+    },
+    "third_party/unitree_ros2_example_include/common/ros2_sport_client.h": {
+      "sha256": "a018dc897106a7afaa03aa510b2fac1b7e0e24ef665f7438edc35e2211fa8e08"
+    },
+    "third_party/unitree_ros2_example_include/common/time_tools.hpp": {
+      "sha256": "cd07d5b5c84085ab9a49161ddeae84f0b89aa2ef396d41399040f7dcf7bdf44c"
+    },
+    "third_party/unitree_ros2_example_include/common/ut_errror.hpp": {
+      "sha256": "4b506a386f6af054a1a12837700d1abf487df03b622783b9f5b41d37db915d41"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/adl_serializer.hpp": {
+      "sha256": "0c4ce295a3f4092cff092901c340c961b10c48ec8d555110fe3df9f619740a19"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/byte_container_with_subtype.hpp": {
+      "sha256": "b56733d3a5b84004f4c7da8ac29ff030509d6a013eeb090541bfcdc46c1a5dc0"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/abi_macros.hpp": {
+      "sha256": "702af5c60305125d8e5a4c813d271882b93bb2ba43cdfe91ee4edcef3fbeeb71"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/conversions/from_json.hpp": {
+      "sha256": "8cad2ff4a90591110a5cc6134eef25e5a16c33f97b531e1576ed551319d16896"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/conversions/to_chars.hpp": {
+      "sha256": "1710dc29a710e8a2121872aefcdd5667c88d3b41b3f863e793a6265106ec237c"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/conversions/to_json.hpp": {
+      "sha256": "8d725eca0c56c3f36e64f2d98b701e900d381c6155d0ca98f75ee23173933aef"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/exceptions.hpp": {
+      "sha256": "f3621e521c99f4bbfdb0da3aa7b29ff6ceef03163ca62c1ff07efaf06cf1c03c"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/hash.hpp": {
+      "sha256": "54f7dd4f4d6cc7bd4c09fec7bda7e47992ee5799bf235104384ee70108023cff"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/input/binary_reader.hpp": {
+      "sha256": "2d9cd443303da37c1f5a88b6e1358309c233e54899f82682f33bc6f42c5de97a"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/input/input_adapters.hpp": {
+      "sha256": "581e5a0982c01bf63449479547e555101b70641dbfc65c31078e0fc4a4e61671"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/input/json_sax.hpp": {
+      "sha256": "be444c45a477d6a26e8bfbb13965e29fc91734a5d06e13b8f34e3b065cf21438"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/input/lexer.hpp": {
+      "sha256": "723a7ae568a1460da5235cd1f844db6b12b0f684b5284d5a4c7db4dbe165c980"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/input/parser.hpp": {
+      "sha256": "fd687a688fc68835ee1337f4e1e7e935bea6cd17dffabb43399628a69424d669"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/input/position_t.hpp": {
+      "sha256": "9007ed8be12f1b0d001c292c1525fdeb1418bed8cd63bf8a00b118574f5bd5d1"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/iterators/internal_iterator.hpp": {
+      "sha256": "2414d89c20b4eb1278672a21b0f09858c4861ffe878432ec942e23e4d277479a"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/iterators/iter_impl.hpp": {
+      "sha256": "68d4b911bfdef6dfb0d14f3c6c58cc7bb1a15f7464dd784ebeb8f753991074b2"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/iterators/iteration_proxy.hpp": {
+      "sha256": "5a04f88931571c197aaec348575f42e27007b990e528b8405b6544425ba5a70f"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/iterators/iterator_traits.hpp": {
+      "sha256": "78a1c32b2bad6782f97063cf642a6dc02588960b9420c1924ca5ef76fb8df9d8"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/iterators/json_reverse_iterator.hpp": {
+      "sha256": "3872b8f61110ff09a77c3a3dca852c0fee9defcaab5b778dc990a253883a5329"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/iterators/primitive_iterator.hpp": {
+      "sha256": "274ba54c5c2b2cd8e7c1e635392b09e73fd65d4183571f821ad149b3954ed818"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/json_custom_base_class.hpp": {
+      "sha256": "bd8766af0922ce350f00da817c5544b009bd3dbe701d6afd8e5809cedd6e6405"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/json_pointer.hpp": {
+      "sha256": "89e228596dccae2f4d0f45cfd40097ad29ef2670e8bf461b1a7ee823d5a03834"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/json_ref.hpp": {
+      "sha256": "ef04660db0236f2f3341bd36de00cbc3f494018278800294be82f85e1fcc4b7c"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/macro_scope.hpp": {
+      "sha256": "586645c0e64aefc9aa6550f26a32938c4e272f5afc6e63de81e09c1723d2d5e6"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/macro_unscope.hpp": {
+      "sha256": "65bb2a65eb2935643f5b788efb7b4092f1a329d0b4fbbc9a1b7343775f58797f"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/call_std/begin.hpp": {
+      "sha256": "f79ecf122600e2e64f344dd95277910816206e37a80bed18737d22f281dbb465"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/call_std/end.hpp": {
+      "sha256": "f0d1493594068a73102b52c47f48d3443ea589afbcaaa2672b0e71499f61d696"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/cpp_future.hpp": {
+      "sha256": "519285d9ceca3d6d3afa0c647c71f8790b91179da66a08b68a9f73a8218016f3"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/detected.hpp": {
+      "sha256": "01963ca48427b32286a4bda3741c0817648af65eef673fe7cc9fc9d94cf343a8"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/identity_tag.hpp": {
+      "sha256": "9a95aaad68fe15b01570b4f9efaebd1ed2e5ad703767f4b93fc2cd855142199c"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/is_sax.hpp": {
+      "sha256": "876aaf9f4ccbed679a9340cf51b3dbe38eaf0b18122e0affe0c5e711a2f73533"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/std_fs.hpp": {
+      "sha256": "68e8e979cca53bd97bc2e85b9e8a78066b5e791a951b0c73290cd7e5c740bc6a"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/type_traits.hpp": {
+      "sha256": "b13c458f9cd6a2d8577031f12e11a951e4ae7b508cce64ffadff42f248ad8b4b"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/meta/void_t.hpp": {
+      "sha256": "30cf458ad751b37097da34c3e28d9e387bbb37fab29d180984baba4e67d3a831"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/output/binary_writer.hpp": {
+      "sha256": "fa372506e0779ac7e989c5dcd57b065eb741abc260ededb7ed9fcd848cc6f6ad"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/output/output_adapters.hpp": {
+      "sha256": "fec93f451953874aad7a30c79b921cd0c4ade1698e36e964bfe89f1a4a6a3c0f"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/output/serializer.hpp": {
+      "sha256": "ede7f1d89e8ba0b2744b5cadd60e99f2e6012abccf1c04aab7356c94a2448fcb"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/string_concat.hpp": {
+      "sha256": "9cc995f50f574dab3da7e98aae81ac50c3b0c2ca8eb29f95d2f7172f4865b273"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/string_escape.hpp": {
+      "sha256": "16899a2c01c9aee2cd0af5b9ede0d3f579af00b58303197e2692f756310317c9"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/detail/value_t.hpp": {
+      "sha256": "f16e2a05c4fdfbe22fc2cee90f7adc0e6ca2c5345348fa1f8c855a8e04f263b6"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/json.hpp": {
+      "sha256": "30d91841e7f24bb63fba92165dc389a363b6e18055d7c2749dbf891e986d085c"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/json_fwd.hpp": {
+      "sha256": "7f50d7790bcfc96394a6f1a1e6635d4b2c8e08e48081ea2e9129df071cb871ef"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/ordered_map.hpp": {
+      "sha256": "117612ea3fca3a4fb6ea2e5b529984c232a4c6deab312a7c7edfe11ff8451534"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/thirdparty/hedley/hedley.hpp": {
+      "sha256": "6c5cdf981e43776f4cd320dc7476309efa7332f457288c4f33051b7fa4f7611d"
+    },
+    "third_party/unitree_ros2_example_include/nlohmann/thirdparty/hedley/hedley_undef.hpp": {
+      "sha256": "2e5aff1a15cbfd8786a2776d0ec0e38e14d2ceadeea229bce5c583bafc26803c"
+    },
+    "src/Livox-SDK2/include/livox_lidar_api.h": {
+      "sha256": "bc64ed3acdc2c1d3be2a9efd7c104d79f49ea7569484e59e1ae01a1e23833fa9"
+    },
+    "src/Livox-SDK2/include/livox_lidar_cfg.h": {
+      "sha256": "fbeb3b91897fad5b71b169e4e4f88bfb3b4b716cecb07e45aa08569cf159e9a5"
+    },
+    "src/Livox-SDK2/include/livox_lidar_def.h": {
+      "sha256": "c687a03a6985e7f497bce89450c3b0b2662926470c5b37deb185a59036525271"
+    },
+    "src/Livox-SDK2/LICENSE.txt": {
+      "sha256": "8a71b3149554ec5b7df17087e63affedc4c0dbc7fb65bfe5495cdf86224fa85f"
+    },
+    "src/livox_ros_driver2/LICENSE.txt": {
+      "sha256": "5d965fd1439196751d5ccad8064a51dafdb2d88548174bb5516d393c7a4c0717"
+    },
+    "src/livox_ros_driver2/cmake/version.cmake": {
+      "sha256": "698b065d680a20695f2163ca5bbe601792b24069357919bee3136768d75f8f7f"
+    },
+    "src/livox_ros_driver2/src/include/livox_ros_driver2.h": {
+      "sha256": "4d2410dbcab335bea5b84de91176c86dbbb8958c1bded396a650dae0361c4781"
+    },
+    "third_party/unitree_sdk2_native/LICENSE": {
+      "sha256": "3e83dbd580cc82cfb666b0d1db48e2511fc092b4e2666b8f1d1ad5bedad65dbf"
+    }
+  },
+  "components": {
+    "unitree_ros2_clients": {
+      "source": "https://github.com/ZhenyuYangK/unitree-g1-fastlio-PC2",
+      "source_commit": "65cb5b7dff1c2c8f06ac6b7b9fbada7992795b78",
+      "upstream": "https://github.com/unitreerobotics/unitree_ros2",
+      "upstream_revision": "not recorded by original vendor snapshot; do not invent a tag",
+      "transport": "unitree_api ROS 2 Request/Response; header-only clients, no native SDK linkage",
+      "license": "See upstream unitree_ros2; original example header directory has no standalone license file"
+    },
+    "livox_sdk2": {
+      "source": "https://github.com/Livox-SDK/Livox-SDK2",
+      "source_commit": "68ae1e1dc77f61f03c95d7c2809831e198d0aedd",
+      "version": "1.3.3 (include/livox_lidar_def.h)",
+      "license": "src/Livox-SDK2/LICENSE.txt",
+      "build": "Build from bundled sources on PC2; local install_pc2/livox_sdk2"
+    },
+    "livox_ros_driver2": {
+      "source": "https://github.com/Livox-SDK/livox_ros_driver2",
+      "source_commit": "13eb05e4e6dd7a765b934d0c5fd6236676a57b49",
+      "local_adaptations": "Existing PC2 lddc.cpp changes retained; P1 launch reads runtime G1_LIVOX_CONFIG",
+      "license": "src/livox_ros_driver2/LICENSE.txt"
+    },
+    "unitree_sdk2_native": {
+      "source": "https://github.com/ZhenyuYangK/unitree-g1-fastlio-PC2",
+      "source_commit": "65cb5b7dff1c2c8f06ac6b7b9fbada7992795b78",
+      "upstream": "https://github.com/unitreerobotics/unitree_sdk2",
+      "version": "2.0.0 (bundled CMakeLists.txt); original upstream SHA unknown",
+      "license": "third_party/unitree_sdk2_native/LICENSE",
+      "usage": "Optional; current bridge/probes do not link SDK static archive or bundled DDS libraries"
+    }
+  },
+  "optional_native_libraries": {
+    "aarch64": {
+      "path": "third_party/unitree_sdk2_native/lib/aarch64/libunitree_sdk2.a",
+      "sha256": "d721872acb95bab68ccd7d4856046db17747c40915e5e0490bdd7812ed7356ca",
+      "bytes": 28836044,
+      "required_by_current_targets": false,
+      "observed_elf_machine": "AArch64"
+    },
+    "x86_64": {
+      "path": "third_party/unitree_sdk2_native/lib/x86_64/libunitree_sdk2.a",
+      "sha256": "ba018518707f511ddd47558ba4d5609e968c30998d3c52abe2e650ba4aab229d",
+      "bytes": 27451544,
+      "required_by_current_targets": false,
+      "observed_elf_machine": "Advanced Micro Devices X86-64"
+    }
+  },
+  "unneeded_missing_vendor_files": [
+    "third_party/unitree_ros2_example_include/b2/b2_motion_switch_client.hpp",
+    "third_party/unitree_ros2_example_include/h2/h2_loco_client.hpp",
+    "third_party/unitree_ros2_example_include/h2/h2_motion_switch_client.hpp"
+  ],
+  "notes": [
+    "Missing compressed native SDK archives were not provided in local snapshot; extracted libraries exist and have checksums above.",
+    "B2/H2 examples are not dependencies of G1 bridge/probes; do not fetch or link unused examples.",
+    "DDS/RMW runtime versions, ELF architecture, ldd resolution and SHA-256 are recorded by g1_check.sh on PC2."
+  ]
+}

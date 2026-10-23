@@ -6,23 +6,23 @@
 - 功能对齐来源：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，本轮固定到 `afaf7bc5daefc98cfa045c0b50d05e17b7ac2053`（2026-10-20）。
 - [进度核对与分阶段迁移](docs/PC2_MIGRATION_PLAN.md) · [代码结构与整理规则](docs/CODE_STRUCTURE.md)。
 
-**P0 基线冻结与结构整理已完成，P1–P7 待实施。** 本地源码已有航点、多点任务与暂停巡航，不能按远端旧 README 的 v8.7 描述判断本地进度。本轮整理日期为 2026-10-23。P0 的快照、缺失文件说明与校验结果见 [P0 验收记录](docs/migration/P0_ACCEPTANCE.md)。
+**P0 已完成；P1 平台层源码迁移和离线验收已完成，PC2 编译及硬件检查待执行；P2–P7 待实施。** 本地已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0 验收记录](docs/migration/P0_ACCEPTANCE.md) 和 [P1 验收记录](docs/migration/P1_ACCEPTANCE.md)。
 
 ## 平台与验证范围
 
 | 用途 | 平台 |
 | --- | --- |
-| 本次检查主机 | 用户提供的 Ubuntu 22.04 主机；用于源码核对和文档整理 |
+| 本次检查主机 | Ubuntu 22.04 / Humble / x86_64 / Python 3.10；用于源码迁移和离线检查 |
 | PC2 适配目标 | 按现有源码维护 Ubuntu 20.04 / ROS 2 Foxy / aarch64 / Python 3.8；上机时核实实际系统和依赖版本 |
 | 功能参考版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
 
-对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配，不直接替换成电脑的 Humble 环境或预编译文件。本轮未运行编译、ROS 节点或真机控制，后续由操作者在 PC2 编译验收。
+对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配。P1 已验证离线脚本、Python 3.8 语法、换目录运行与 CMake 配置生成；未执行 ROS 编译、节点启动或真机控制，PC2 编译和运行结果须单独验收。
 
 ## 当前能力
 
 | 模块 | 本地已有 | 待从 Ubuntu 版迁移 |
 | --- | --- | --- |
-| 建图 | MID360、FAST-LIO、PCD 保存和二维地图转换 | 统一环境、进程归属检查、保存结果确认 |
+| 建图 | MID360、FAST-LIO、PCD 保存和二维地图转换；P1 已统一环境、进程归属和保存确认 | PC2 上机检查；后续整体验收 |
 | 定位 | 人工初始位姿 + NDT；固定起点入口 | 时间同步、新鲜状态、无先验全局定位、多候选确认和诊断 |
 | 导航 | Foxy Nav2、`/cmd_vel_nav`、Dry Run 与真机桥 | 定位失效联锁、机体系速度反馈、`/Odometry_nav`、统一速度参数 |
 | 航点与任务 | 录点、任务校验、顺序导航、取消和恢复标记 | 单点任务结果持久化、双语讲解、人工放行、状态服务 |
@@ -58,7 +58,7 @@ Git 仓库根目录就是包含 `src/`、`script/`、`maps/` 的工作空间。�
 └── build/ install/ log/ runtime/ # 本地生成内容，不进入 Git
 ```
 
-`g1_audio_bridge/`、`web_console/` 和统一环境脚本属于后续迁移交付，当前尚不存在。结构规划和各模块职责见 [CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)。
+P1 已增加 `g1_env.sh`、`local.env.example`、构建/自检、雷达配置、进程归属和地图保存辅助工具；`g1_audio_bridge/`、`web_console/` 仍属后续交付。结构规划见 [CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)。
 
 ## 获取与上机准备
 
@@ -78,7 +78,23 @@ python3 script/g1_verify_p0.py --local
 
 省略 `--local` 仅校验源码和本地核对证据。后续阶段修改源码后，P0 校验报告差异属于预期；保留 P0 快照并为新阶段单独记录验收。
 
-当前本地启动脚本和 CMake 仍有旧机器的 `/home/g1test/...` 路径。迁移 P1 会统一环境加载和路径配置；在 P1 完成前，换路径部署需要逐项核对。不要把当前检查主机已有的 Humble 环境当作 PC2 的运行环境。
+P1 已移除业务入口、CMake 和配置中的原机器路径。公共入口默认 Foxy；加载 ROS 前会拒绝已混入的 Humble 环境。导出的同名配置优先于 `local.env`；工作空间默认由脚本位置确定，`G1_WS` 可覆盖。在 PC2 上部署时：
+
+```bash
+cp -n script/local.env.example script/local.env  # 保留已有配置
+# 编辑 local.env：填写现场网卡、主机/雷达 IP、Domain 和所需 underlay
+bash script/g1_build.sh
+bash script/g1_check.sh > pc2-dependencies.json
+```
+
+默认新建 `build_pc2/`、`install_pc2/`、`log_pc2/`，原 `build/install/log` 保留；路径、架构或 ABI 改变时选择新的构建目录。厂商来源、校验和与依赖要求见 [PC2_DEPENDENCIES.md](third_party/PC2_DEPENDENCIES.md)。本机检查不需要 ROS：
+
+```bash
+bash script/g1_check.sh --offline
+python3 script/test_p1_platform.py
+```
+
+建图与导航共用管理锁；停止操作只处理身份、命令行和进程组归属均通过核验的进程。旧 PID 文件若仍指向活进程，会拒绝操作并要求由原启动方核实。地图保存必须取得 `success=true` 回执并发现新的非空文件，`finish` 在保存失败时保留节点；会话和保存回执位于 `runtime/mapping/`。重启归档旧日志，当前日志从空文件开始。
 
 上机前准备同一区域的三维地图、PGM 和地图 YAML，以及匹配 `map_id` 的航点与任务。默认文件为：
 
@@ -111,7 +127,7 @@ bash script/g1_navigation.sh continue-dry
 
 # 航点和任务离线查看
 bash script/g1_waypoints.sh list
-bash script/g1_waypoints.sh missions
+bash script/g1_waypoints.sh validate
 
 # PC2 已有巡航路线预览
 bash script/g1_cruise.sh plan
@@ -141,7 +157,7 @@ bash script/g1_cruise.sh plan
 
 P0 基线与结构整理 → P1 PC2 环境和路径 → P2 新鲜定位状态与联锁 → P3 全局自动定位 → P4 速度反馈与 Nav2 → P5 语音和任务 → P6 网页控制 → P7 PC2 整体验收。
 
-每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P0 之外均为待迁移，不能把参考仓库通过的检查记为 PC2 已通过。
+每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1 已完成源码与离线检查；参考仓库或本机通过的检查不代表 PC2 已通过。
 
 ## 许可证
 

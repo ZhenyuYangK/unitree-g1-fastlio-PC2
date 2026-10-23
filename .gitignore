@@ -2,6 +2,9 @@
 /build/
 /install/
 /log/
+/build_pc2*/
+/install_pc2*/
+/log_pc2*/
 /runtime/
 /backup/
 /docs/

@@ -21,18 +21,8 @@ set -Eeuo pipefail
 #   ./g1_navigation.sh stop|restart|status|logs
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-DEFAULT_WS="/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws"
-
-if [[ -d "${SCRIPT_DIR}/../src/FAST_LIO_ROS2" ]]; then
-  WS="$(cd "${SCRIPT_DIR}/.." && pwd)"
-else
-  WS="${G1_WS:-${DEFAULT_WS}}"
-fi
-
-ROS_SETUP="/opt/ros/foxy/setup.bash"
-PCL_SETUP="/home/g1test/ws_pcl_ros/install/setup.bash"
-UNITREE_ROS2_SETUP="/home/g1test/Desktop/irongroup/yzy/unitree_ros2/cyclonedds_ws/install/local_setup.bash"
-WS_SETUP="${WS}/install/setup.bash"
+source "${SCRIPT_DIR}/g1_env.sh"
+WS="$G1_WS"
 
 MAP_PCD="${G1_MAP_PCD:-${WS}/maps/map.pcd}"
 MAP_PGM="${G1_MAP_PGM:-${WS}/maps/map_multilayer.pgm}"
@@ -59,58 +49,20 @@ ok()   { printf '\033[1;32m[OK]\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[WARN]\033[0m %s\n' "$*" >&2; }
 die()  { printf '\033[1;31m[ERROR]\033[0m %s\n' "$*" >&2; exit 1; }
 
-source_environment() {
-  [[ -f "${ROS_SETUP}" ]] || die "找不到 ${ROS_SETUP}"
-
-  set +u
-  # shellcheck disable=SC1090
-  source "${ROS_SETUP}"
-  if [[ -f "${PCL_SETUP}" ]]; then
-    # shellcheck disable=SC1090
-    source "${PCL_SETUP}"
-  fi
-  if [[ -f "${UNITREE_ROS2_SETUP}" ]]; then
-    # 仅作为 unitree_api underlay；start/start-dry 都不会调用真实运动后端。
-    # shellcheck disable=SC1090
-    source "${UNITREE_ROS2_SETUP}"
-  fi
-  [[ -f "${WS_SETUP}" ]] || {
-    set -u
-    die "找不到 ${WS_SETUP}，请先编译工作空间"
-  }
-  # shellcheck disable=SC1090
-  source "${WS_SETUP}"
-  # G1_RMW_RELEASE_PAIR_BEGIN
-  if [[ "${G1_RMW_RELEASE_TEST:-0}" == "1" ]]; then
-    local rmw_prefix="/home/g1test/g1_rmw_release_test/install"
-    local dds_lib="/home/g1test/cyclonedds_ws/install/cyclonedds/lib"
-    [[ -r "${rmw_prefix}/local_setup.bash" ]] || die "Missing RMW test setup"
-    [[ -r "${dds_lib}/libddsc.so.0" ]] || die "Missing test DDS library"
-    source "${rmw_prefix}/local_setup.bash" || die "Failed to load RMW test setup"
-    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    export LD_LIBRARY_PATH="${rmw_prefix}/rmw_cyclonedds_cpp/lib:${dds_lib}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-  fi
-  # G1_RMW_RELEASE_PAIR_END
-  set -u
-
-  if [[ -d "${WS}/install/livox_sdk2/lib" ]]; then
-    export LD_LIBRARY_PATH="${WS}/install/livox_sdk2/lib:${LD_LIBRARY_PATH:-}"
-  fi
-}
+source_environment() { g1_source_environment; }
 
 check_file() { [[ -f "$1" ]] || die "缺少文件：$1"; }
 check_package() { ros2 pkg prefix "$1" >/dev/null 2>&1 || die "ROS2 包不存在：$1"; }
-pid_alive() { kill -0 "$1" 2>/dev/null; }
+processes() { python3 "${SCRIPT_DIR}/g1_process.py" "$@"; }
+
+assert_not_running() {
+  local rc=0
+  processes status --file "$1" || rc=$?
+  [[ "$rc" == 1 ]] || die "已有进程运行或归属待核实：$1"
+}
 
 check_mapping_not_running() {
-  local mapping_pid_file="${WS}/runtime/mapping/mapping.pids"
-  if [[ -f "${mapping_pid_file}" ]]; then
-    while read -r _name pid; do
-      if [[ -n "${pid:-}" ]] && pid_alive "${pid}"; then
-        die "建图系统仍在运行，请先执行 ${SCRIPT_DIR}/g1_mapping.sh stop"
-      fi
-    done <"${mapping_pid_file}"
-  fi
+  assert_not_running "${WS}/runtime/mapping/mapping.pids"
 }
 
 check_prerequisites() {
@@ -137,75 +89,11 @@ check_prerequisites() {
 }
 
 start_process() {
-  local name="$1"
-  shift
-  local log_file="${LOG_DIR}/${name}.log"
-
-  setsid "$@" >"${log_file}" 2>&1 < /dev/null &
-  local pid=$!
-  printf '%s %s\n' "${name}" "${pid}" >>"${PID_FILE}"
-  say "已启动 ${name}，PID=${pid}，日志=${log_file}"
+  local name="$1"; shift
+  processes start --file "$PID_FILE" --name "$name" --log "$LOG_DIR/$name.log" -- "$@"
 }
 
-stop_from_pid_file() {
-  [[ -f "${PID_FILE}" ]] || return 0
-
-  tac "${PID_FILE}" | while read -r name pid; do
-    [[ -n "${pid:-}" ]] || continue
-    if pid_alive "${pid}"; then
-      say "停止 ${name}，PID=${pid}"
-      kill -INT -- "-${pid}" 2>/dev/null || kill -INT "${pid}" 2>/dev/null || true
-    fi
-  done
-
-  sleep 3
-
-  tac "${PID_FILE}" | while read -r name pid; do
-    [[ -n "${pid:-}" ]] || continue
-    if pid_alive "${pid}"; then
-      warn "${name} 未正常退出，发送 TERM"
-      kill -TERM -- "-${pid}" 2>/dev/null || kill -TERM "${pid}" 2>/dev/null || true
-    fi
-  done
-
-  rm -f "${PID_FILE}"
-}
-
-cleanup_stale_navigation() {
-  local patterns=(
-    "livox_ros_driver2_node"
-    "fastlio_mapping"
-    "g1_relocalization_node"
-    "nav2_map_server.*map_server"
-    "controller_server"
-    "planner_server"
-    "recoveries_server"
-    "bt_navigator"
-    "lifecycle_manager_navigation"
-    "g1_cmd_vel_dry_run"
-    "body_to_nav_base"
-  )
-
-  for pattern in "${patterns[@]}"; do
-    local pids
-    pids="$(pgrep -u "${USER}" -f "${pattern}" || true)"
-    if [[ -n "${pids}" ]]; then
-      warn "清理旧进程 ${pattern}：${pids//$'\n'/ }"
-      # shellcheck disable=SC2086
-      kill -INT ${pids} 2>/dev/null || true
-    fi
-  done
-
-  local rviz_pids
-  rviz_pids="$(pgrep -u "${USER}" -x rviz2 || true)"
-  if [[ -n "${rviz_pids}" ]]; then
-    warn "清理旧 RViz：${rviz_pids//$'\n'/ }"
-    # shellcheck disable=SC2086
-    kill -INT ${rviz_pids} 2>/dev/null || true
-  fi
-
-  sleep 2
-}
+stop_from_pid_file() { processes stop --file "$PID_FILE"; }
 
 wait_for_topic() {
   local topic="$1"
@@ -252,6 +140,7 @@ generate_runtime_files() {
     "${RUNTIME_NAV2_PARAMS}" <<'PY'
 from pathlib import Path
 import sys
+import json
 
 map_yaml = Path(sys.argv[1])
 map_pgm = Path(sys.argv[2]).resolve()
@@ -267,12 +156,12 @@ map_out = []
 replaced = False
 for line in map_lines:
     if line.strip().startswith("image:"):
-        map_out.append(f'image: "{map_pgm}"')
+        map_out.append('image: ' + json.dumps(str(map_pgm)))
         replaced = True
     else:
         map_out.append(line)
 if not replaced:
-    map_out.insert(0, f'image: "{map_pgm}"')
+    map_out.insert(0, 'image: ' + json.dumps(str(map_pgm)))
 runtime_map.write_text("\n".join(map_out) + "\n", encoding="utf-8")
 
 # 导航阶段关闭 FAST-LIO PCD 累积，避免长时间导航占用大量内存。
@@ -366,7 +255,7 @@ activate_map_server() {
   fi
 
   state="$(timeout 5 ros2 lifecycle get /map_server 2>/dev/null || true)"
-  grep -qi active <<<"${state}" || die "map_server 未激活：${state}"
+  grep -Eqi '^active[[:space:]]*\[3\]' <<<"${state}" || die "map_server 未激活：${state}"
   ok "map_server 已激活"
 }
 
@@ -422,12 +311,17 @@ wait_for_ndt_success() {
 start_base_stack() {
   local init_mode="$1"
 
+  g1_lock_stack
   check_prerequisites
+  assert_not_running "$PID_FILE"
+  assert_not_running "${WS}/runtime/navigation/real_bridge.pid"
+  local nodes
+  nodes="$(timeout 8 ros2 node list)" || die '无法检查现有 ROS 节点'
+  if grep -Eq '/(livox_lidar_publisher|laserMapping|fastlio_mapping|controller_server|g1_relocalization|map_server)$' <<<"$nodes"; then
+    die '已有建图/定位/导航节点，请由原启动方停止'
+  fi
   stop_from_pid_file
-  cleanup_stale_navigation
-
-  : >"${PID_FILE}"
-  rm -f "${LOG_DIR}"/*.log
+  g1_prepare_livox_config
   generate_runtime_files
 
   start_process livox ros2 launch livox_ros_driver2 msg_MID360_launch.py
@@ -463,7 +357,7 @@ start_base_stack() {
   # 防止 /map 在 RViz 完成订阅前已经发布，导致 Map 显示 No map received。
   wait_for_node /map_server 30 || die "map_server 未启动"
 
-  start_process rviz rviz2 -d "${NAV_RVIZ}"
+  g1_start_rviz "${NAV_RVIZ}"
 # 给 RViz 的 Map 显示留出建立 /map 订阅的时间
   sleep 2
 
@@ -487,7 +381,7 @@ wait_nav2_active() {
     local elapsed=0
     while (( elapsed < 60 )); do
       state="$(timeout 5 ros2 lifecycle get "/${node}" 2>/dev/null || true)"
-      if grep -qi active <<<"${state}"; then
+      if grep -Eqi '^active[[:space:]]*\[3\]' <<<"${state}"; then
         ok "${node}: active"
         break
       fi
@@ -514,6 +408,8 @@ start_nav2_stack() {
   local with_dry="$1"
 
   source_environment
+  processes status --file "$PID_FILE" --name relocalization \
+    || die '缺少本工作空间可验证的定位进程，请先 start'
 
   if ! grep -q "NDT success" "${LOG_DIR}/relocalization.log" 2>/dev/null; then
     die "尚未检测到 NDT success，请先完成 2D Pose Estimate"
@@ -613,10 +509,9 @@ disable_dry() {
 }
 
 stop_all() {
-  source_environment || true
-  disable_dry || true
+  # 真机桥有独立归属记录，先关闭并停止本工作空间真机桥。
+  bash "${SCRIPT_DIR}/g1_navigation_real.sh" stop
   stop_from_pid_file
-  cleanup_stale_navigation
   ok "定位与导航系统已停止"
 }
 
@@ -627,18 +522,7 @@ show_status() {
   echo "二维地图：${MAP_YAML}"
   echo
 
-  if [[ -f "${PID_FILE}" ]]; then
-    printf '%-18s %-10s %s\n' "进程" "PID" "状态"
-    while read -r name pid; do
-      if pid_alive "${pid}"; then
-        printf '%-18s %-10s %s\n' "${name}" "${pid}" "运行中"
-      else
-        printf '%-18s %-10s %s\n' "${name}" "${pid}" "已退出"
-      fi
-    done <"${PID_FILE}"
-  else
-    warn "没有 PID 文件"
-  fi
+  processes status --file "$PID_FILE" || true
 
   echo
   say "关键话题"
@@ -714,12 +598,12 @@ main() {
     start-dry) start_sequence manual yes ;;
     start-auto) start_sequence auto no ;;
     start-auto-dry) start_sequence auto yes ;;
-    continue) start_nav2_stack no ;;
-    continue-dry) start_nav2_stack yes ;;
-    enable-dry) enable_dry ;;
-    disable-dry) disable_dry ;;
-    stop) stop_all ;;
-    restart) stop_all; sleep 2; start_sequence manual no ;;
+    continue) g1_lock_stack; check_mapping_not_running; start_nav2_stack no ;;
+    continue-dry) g1_lock_stack; check_mapping_not_running; start_nav2_stack yes ;;
+    enable-dry) g1_lock_stack; enable_dry ;;
+    disable-dry) g1_lock_stack; disable_dry ;;
+    stop) g1_lock_stack; stop_all ;;
+    restart) g1_lock_stack; stop_all; sleep 2; start_sequence manual no ;;
     status) show_status ;;
     logs) show_logs ;;
     -h|--help|help) usage ;;

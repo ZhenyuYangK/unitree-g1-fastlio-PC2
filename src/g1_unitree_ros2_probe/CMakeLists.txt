@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.5)
 project(g1_unitree_ros2_probe)
 
 if(NOT CMAKE_CXX_STANDARD)
-  set(CMAKE_CXX_STANDARD 20)
+  set(CMAKE_CXX_STANDARD 17)
 endif()
 
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -16,10 +16,12 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(unitree_api REQUIRED)
 
-set(
-  UNITREE_ROS2_EXAMPLE_INCLUDE
-  /home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws/third_party/unitree_ros2_example_include
-)
+set(UNITREE_ROS2_EXAMPLE_INCLUDE
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/unitree_ros2_example_include"
+  CACHE PATH "Unitree ROS2 example client headers (no native SDK library required)")
+if(NOT EXISTS "${UNITREE_ROS2_EXAMPLE_INCLUDE}/g1/g1_loco_client.hpp")
+  message(FATAL_ERROR "Missing Unitree ROS2 headers: ${UNITREE_ROS2_EXAMPLE_INCLUDE}")
+endif()
 
 add_executable(
   g1_unitree_ros2_status_probe
@@ -38,9 +40,9 @@ foreach(target
   target_include_directories(
     ${target}
     PRIVATE
-      ${UNITREE_ROS2_EXAMPLE_INCLUDE}
-      ${UNITREE_ROS2_EXAMPLE_INCLUDE}/common
-      ${UNITREE_ROS2_EXAMPLE_INCLUDE}/nlohmann
+      "${UNITREE_ROS2_EXAMPLE_INCLUDE}"
+      "${UNITREE_ROS2_EXAMPLE_INCLUDE}/common"
+      "${UNITREE_ROS2_EXAMPLE_INCLUDE}/nlohmann"
   )
 
   ament_target_dependencies(
@@ -66,9 +68,9 @@ add_executable(
 target_include_directories(
   g1_unitree_ros2_start_probe
   PRIVATE
-    ${UNITREE_ROS2_EXAMPLE_INCLUDE}
-    ${UNITREE_ROS2_EXAMPLE_INCLUDE}/common
-    ${UNITREE_ROS2_EXAMPLE_INCLUDE}/nlohmann
+    "${UNITREE_ROS2_EXAMPLE_INCLUDE}"
+    "${UNITREE_ROS2_EXAMPLE_INCLUDE}/common"
+    "${UNITREE_ROS2_EXAMPLE_INCLUDE}/nlohmann"
 )
 
 ament_target_dependencies(
@@ -91,9 +93,9 @@ add_executable(
 target_include_directories(
   g1_unitree_ros2_velocity_probe
   PRIVATE
-    ${UNITREE_ROS2_EXAMPLE_INCLUDE}
-    ${UNITREE_ROS2_EXAMPLE_INCLUDE}/common
-    ${UNITREE_ROS2_EXAMPLE_INCLUDE}/nlohmann
+    "${UNITREE_ROS2_EXAMPLE_INCLUDE}"
+    "${UNITREE_ROS2_EXAMPLE_INCLUDE}/common"
+    "${UNITREE_ROS2_EXAMPLE_INCLUDE}/nlohmann"
 )
 
 ament_target_dependencies(

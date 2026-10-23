@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-WS=/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws
-
-ROS_SETUP=/opt/ros/foxy/setup.bash
-UNITREE_SETUP=/home/g1test/Desktop/irongroup/yzy/unitree_ros2/cyclonedds_ws/install/local_setup.bash
-WS_SETUP="$WS/install/setup.bash"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/g1_env.sh"
+WS="$G1_WS"
 
 CFG="$WS/src/g1_loco_bridge/config/g1_loco_bridge_nav2_real.yaml"
 
@@ -16,26 +14,8 @@ LOG_FILE="$LOG_DIR/real_bridge.log"
 
 mkdir -p "$LOG_DIR"
 
-load_env()
-{
-    set +u
-    source "$ROS_SETUP"
-    source "$UNITREE_SETUP"
-    source "$WS_SETUP"
-    g1_rmw_env_fail() { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
-  # G1_RMW_RELEASE_PAIR_BEGIN
-  if [[ "${G1_RMW_RELEASE_TEST:-0}" == "1" ]]; then
-    local rmw_prefix="/home/g1test/g1_rmw_release_test/install"
-    local dds_lib="/home/g1test/cyclonedds_ws/install/cyclonedds/lib"
-    [[ -r "${rmw_prefix}/local_setup.bash" ]] || g1_rmw_env_fail "Missing RMW test setup"
-    [[ -r "${dds_lib}/libddsc.so.0" ]] || g1_rmw_env_fail "Missing test DDS library"
-    source "${rmw_prefix}/local_setup.bash" || g1_rmw_env_fail "Failed to load RMW test setup"
-    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-    export LD_LIBRARY_PATH="${rmw_prefix}/rmw_cyclonedds_cpp/lib:${dds_lib}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
-  fi
-  # G1_RMW_RELEASE_PAIR_END
-    set -u
-}
+load_env() { g1_source_environment; }
+processes() { python3 "$SCRIPT_DIR/g1_process.py" "$@"; }
 
 check_nav()
 {
@@ -45,9 +25,9 @@ check_nav()
         recoveries_server \
         bt_navigator
     do
-        state="$(ros2 lifecycle get "/$n" 2>/dev/null || true)"
+        state="$(timeout 5 ros2 lifecycle get "/$n" 2>/dev/null || true)"
 
-        if ! grep -qi active <<<"$state"; then
+        if ! grep -Eqi '^active[[:space:]]*\[3\]' <<<"$state"; then
             echo "[ERROR] $n 不是 active"
             exit 1
         fi
@@ -63,14 +43,20 @@ check_nav()
 
 start_bridge()
 {
+    g1_lock_stack
     load_env
     check_nav
 
-    if ros2 node list 2>/dev/null |
-        grep -Fxq /g1_cmd_vel_dry_run
-    then
-        echo "[WARN] real bridge 已经运行"
+    local rc=0
+    processes status --file "$PID_FILE" || rc=$?
+    if [[ "$rc" == 0 ]]; then
+        echo '[OK] 当前工作空间真机桥已运行'
         return
+    fi
+    [[ "$rc" == 1 ]] || return "$rc"
+    if timeout 8 ros2 node list | grep -Fxq /g1_cmd_vel_dry_run; then
+        g1_error '已有同名桥节点，请由原启动方核实模式并停止'
+        return 1
     fi
 
     echo
@@ -87,15 +73,8 @@ start_bridge()
     echo "=========================================="
     echo
 
-    setsid ros2 run \
-        g1_loco_bridge \
-        g1_cmd_vel_dry_run \
-        --ros-args \
-        --params-file "$CFG" \
-        >"$LOG_FILE" 2>&1 </dev/null &
-
-    pid=$!
-    echo "$pid" > "$PID_FILE"
+    processes start --file "$PID_FILE" --name real_bridge --log "$LOG_FILE" -- \
+        ros2 run g1_loco_bridge g1_cmd_vel_dry_run --ros-args --params-file "$CFG"
 
     sleep 3
 
@@ -132,6 +111,8 @@ start_bridge()
 
 enable_bridge()
 {
+    g1_lock_stack
+    processes status --file "$PID_FILE"
     load_env
 
     echo
@@ -139,7 +120,7 @@ enable_bridge()
     echo "[WARN] 机器人模式必须已经由你手动切换"
     echo
 
-    ros2 service call \
+    timeout 8 ros2 service call \
         /g1_loco_bridge/enable_real_nav \
         std_srvs/srv/SetBool \
         "{data: true}"
@@ -149,7 +130,7 @@ disable_bridge()
 {
     load_env
 
-    ros2 service call \
+    timeout 8 ros2 service call \
         /g1_loco_bridge/enable_real_nav \
         std_srvs/srv/SetBool \
         "{data: false}" \
@@ -158,22 +139,15 @@ disable_bridge()
 
 stop_bridge()
 {
-    load_env
-
-    disable_bridge || true
-
-    if [[ -f "$PID_FILE" ]]; then
-        pid="$(cat "$PID_FILE")"
-
-        if kill -0 "$pid" 2>/dev/null; then
-            kill -INT -- "-$pid" 2>/dev/null ||
-                kill -INT "$pid" 2>/dev/null ||
-                true
-        fi
-
-        rm -f "$PID_FILE"
+    g1_lock_stack
+    local rc=0
+    processes status --file "$PID_FILE" || rc=$?
+    if [[ "$rc" == 0 ]]; then
+        if load_env; then disable_bridge || true; fi
+    elif [[ "$rc" != 1 ]]; then
+        return "$rc"
     fi
-
+    processes stop --file "$PID_FILE"
     echo "[OK] 真机安全桥已停止"
 }
 
@@ -232,6 +206,8 @@ case "${1:-}" in
         ;;
 
     disable)
+        g1_lock_stack
+        processes status --file "$PID_FILE"
         disable_bridge
         ;;
 
@@ -245,6 +221,10 @@ case "${1:-}" in
 
     logs)
         logs
+        ;;
+
+    -h|--help|help)
+        echo "用法：$0 start|enable|disable|status|logs|stop"
         ;;
 
     *)
