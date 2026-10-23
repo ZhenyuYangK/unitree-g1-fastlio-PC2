@@ -49,11 +49,11 @@ bt_navigator:
     use_sim_time: false
     global_frame: map
     robot_base_frame: nav_base
-    odom_topic: /Odometry
+    odom_topic: /Odometry_nav
     enable_groot_monitoring: true
     groot_zmq_publisher_port: 1666
     groot_zmq_server_port: 1667
-    default_bt_xml_filename: ""  # launch 从包 share 目录解析
+    default_bt_xml_filename: ''
     plugin_lib_names:
     - nav2_compute_path_to_pose_action_bt_node
     - nav2_follow_path_action_bt_node
@@ -105,18 +105,18 @@ controller_server:
       debug_trajectory_details: true
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 0.20
+      max_vel_x: 1.0
       max_vel_y: 0.0
-      max_vel_theta: 0.40
+      max_vel_theta: 0.4
       min_speed_xy: 0.0
-      max_speed_xy: 0.20
+      max_speed_xy: 1.0
       min_speed_theta: 0.0
-      acc_lim_x: 0.3
-      acc_lim_y: 0.0
-      acc_lim_theta: 0.5
+      acc_lim_x: 0.2
+      acc_lim_y: 0.2
+      acc_lim_theta: 4.0
       decel_lim_x: -0.3
-      decel_lim_y: 0.0
-      decel_lim_theta: -0.5
+      decel_lim_y: -0.3
+      decel_lim_theta: -4.0
       vx_samples: 5
       vy_samples: 1
       vtheta_samples: 9
@@ -146,7 +146,7 @@ controller_server:
       RotateToGoal.scale: 20.0
       RotateToGoal.slowing_factor: 5.0
       RotateToGoal.lookahead_time: -1.0
-    odom_topic: /Odometry
+    odom_topic: /Odometry_nav
 controller_server_rclcpp_node:
   ros__parameters:
     use_sim_time: true
@@ -278,23 +278,19 @@ recoveries_server:
     cycle_frequency: 10.0
     recovery_plugins:
     - spin
-    - back_up
     - wait
     spin:
       plugin: nav2_recoveries/Spin
-    back_up:
-      plugin: nav2_recoveries/BackUp
     wait:
       plugin: nav2_recoveries/Wait
-    global_frame: map
+    global_frame: camera_init
     robot_base_frame: nav_base
-    transform_timeout: 0.5
     use_sim_time: false
     simulate_ahead_time: 2.0
-    max_rotational_vel: 0.35
+    max_rotational_vel: 0.4
     min_rotational_vel: 0.1
-    rotational_acc_lim: 0.5
-    local_frame: camera_init
+    rotational_acc_lim: 4.0
+    transform_tolerance: 0.5
 robot_state_publisher:
   ros__parameters:
     use_sim_time: true

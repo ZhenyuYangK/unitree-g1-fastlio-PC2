@@ -34,7 +34,9 @@ FASTLIO_SOURCE_CFG="${WS}/src/FAST_LIO_ROS2/config/mid360.yaml"
 RELOC_CFG="${WS}/src/g1_relocalization/config/relocalization.yaml"
 NAV2_SOURCE_PARAMS="${WS}/src/g1_nav2_bringup/config/nav2_params.yaml"
 NAV_RVIZ="${WS}/src/g1_nav2_bringup/rviz/navigation.rviz"
-DRY_CFG="${WS}/src/g1_loco_bridge/config/g1_loco_bridge_nav2_dry_run.yaml"
+DRY_SOURCE_CFG="${WS}/src/g1_loco_bridge/config/g1_loco_bridge_nav2_dry_run.yaml"
+REAL_SOURCE_CFG="${WS}/src/g1_loco_bridge/config/g1_loco_bridge_nav2_real.yaml"
+NAV_PROFILE="${G1_NAV_PROFILE:-safe}"
 AUTO_POSE_FILE="${SCRIPT_DIR}/auto_start_pose.env"
 LOCALIZATION_TIMEOUT="${G1_LOCALIZATION_TIMEOUT_SEC:-180.0}"
 
@@ -43,7 +45,10 @@ LOG_DIR="${RUNTIME_DIR}/logs"
 PID_FILE="${RUNTIME_DIR}/navigation.pids"
 RUNTIME_MAP_YAML="${RUNTIME_DIR}/map_runtime.yaml"
 RUNTIME_FASTLIO_CFG="${RUNTIME_DIR}/mid360_navigation.yaml"
-RUNTIME_NAV2_PARAMS="${RUNTIME_DIR}/nav2_params_safe.yaml"
+RUNTIME_NAV2_PARAMS="${RUNTIME_DIR}/nav2_params.yaml"
+DRY_CFG="${RUNTIME_DIR}/bridge_dry.yaml"
+REAL_CFG="${RUNTIME_DIR}/bridge_real.yaml"
+NAV_CONFIG="${RUNTIME_DIR}/navigation_config.json"
 
 mkdir -p "${LOG_DIR}"
 
@@ -79,6 +84,9 @@ check_prerequisites() {
   check_file "${RELOC_CFG}"
   check_file "${NAV2_SOURCE_PARAMS}"
   check_file "${NAV_RVIZ}"
+  check_file "${DRY_SOURCE_CFG}"
+  check_file "${REAL_SOURCE_CFG}"
+  [[ "$NAV_PROFILE" == safe || "$NAV_PROFILE" == target ]] || die "G1_NAV_PROFILE 必须是 safe 或 target"
 
   source_environment
 
@@ -138,9 +146,7 @@ generate_runtime_files() {
     "${MAP_PGM}" \
     "${RUNTIME_MAP_YAML}" \
     "${FASTLIO_SOURCE_CFG}" \
-    "${RUNTIME_FASTLIO_CFG}" \
-    "${NAV2_SOURCE_PARAMS}" \
-    "${RUNTIME_NAV2_PARAMS}" <<'PY'
+    "${RUNTIME_FASTLIO_CFG}" <<'PY'
 from pathlib import Path
 import sys
 import json
@@ -150,8 +156,6 @@ map_pgm = Path(sys.argv[2]).resolve()
 runtime_map = Path(sys.argv[3])
 fastlio_src = Path(sys.argv[4])
 fastlio_dst = Path(sys.argv[5])
-nav_src = Path(sys.argv[6])
-nav_dst = Path(sys.argv[7])
 
 # 地图 YAML 使用绝对 PGM 路径。
 map_lines = map_yaml.read_text(encoding="utf-8").splitlines()
@@ -182,59 +186,12 @@ for line in fast_lines:
 if not found_save:
     raise SystemExit("FAST-LIO 配置中找不到 pcd_save_en")
 fastlio_dst.write_text("\n".join(fast_out) + "\n", encoding="utf-8")
-
-# 生成适用于 G1 第一版导航的运行时 Nav2 参数。
-# 按“参数名”修改，而不是依赖旧值，因此脚本可以重复执行，
-# 也不会因为源码参数已经被手动修改而报错。
-nav_lines = nav_src.read_text(encoding="utf-8").splitlines()
-nav_values = {
-    "min_vel_x": "0.0",
-    "min_vel_y": "0.0",
-    "max_vel_x": "0.50",
-    "max_vel_y": "0.0",
-    "max_vel_theta": "0.40",
-    "min_speed_xy": "0.0",
-    "max_speed_xy": "0.50",
-    "min_speed_theta": "0.40",
-    "acc_lim_x": "0.3",
-    "acc_lim_y": "0.0",
-    "acc_lim_theta": "4.0",
-    "decel_lim_x": "-0.3",
-    "decel_lim_y": "0.0",
-    "decel_lim_theta": "-4.0",
-    "vx_samples": "5",
-    "vy_samples": "1",
-    "vtheta_samples": "3",
-}
-
-found = {key: 0 for key in nav_values}
-nav_out = []
-for line in nav_lines:
-    stripped = line.strip()
-    replaced = False
-    for key, value in nav_values.items():
-        if stripped.startswith(key + ":"):
-            indent = line[:len(line) - len(line.lstrip())]
-            nav_out.append(f"{indent}{key}: {value}")
-            found[key] += 1
-            replaced = True
-            break
-    if not replaced:
-        nav_out.append(line)
-
-missing = [key for key, count in found.items() if count == 0]
-duplicated = [key for key, count in found.items() if count > 1]
-if missing:
-    raise SystemExit(
-        "Nav2 配置缺少必要参数：" + ", ".join(missing)
-    )
-if duplicated:
-    raise SystemExit(
-        "Nav2 配置存在重复参数，拒绝生成运行时文件：" + ", ".join(duplicated)
-    )
-
-nav_dst.write_text("\n".join(nav_out) + "\n", encoding="utf-8")
 PY
+
+  python3 "${WS}/src/g1_nav2_bringup/tools/generate_nav2_params.py" \
+    "$NAV2_SOURCE_PARAMS" "$RUNTIME_NAV2_PARAMS" --profile "$NAV_PROFILE" \
+    --bridge-dry "$DRY_SOURCE_CFG" "$DRY_CFG" \
+    --bridge-real "$REAL_SOURCE_CFG" "$REAL_CFG" --manifest "$NAV_CONFIG"
 
   ok "运行时地图 YAML：${RUNTIME_MAP_YAML}"
   ok "导航 FAST-LIO 配置：${RUNTIME_FASTLIO_CFG}"
@@ -414,7 +371,8 @@ start_nav2_stack() {
   wait_for_localization 5 || die "当前定位未确认或已过期，请完成 2D Pose Estimate"
 
   if timeout 4 ros2 node list 2>/dev/null | grep -Fxq /controller_server; then
-    warn "Nav2 已经运行，跳过重复启动"
+    processes status --file "$PID_FILE" --name nav2 || die '现有 Nav2 不属于本工作空间'
+    warn "复用本工作空间 Nav2，并核对实际加载参数"
   else
     start_process \
       nav2 \
@@ -428,33 +386,21 @@ start_nav2_stack() {
   wait_for_topic /plan 20 || die "未出现 /plan"
   wait_for_topic /cmd_vel_nav 20 || die "未出现 /cmd_vel_nav"
   check_tf_chain
+  check_navigation_ready nav
 
   if [[ "${with_dry}" == "yes" ]]; then
     check_file "${DRY_CFG}"
     check_package g1_loco_bridge
 
     if timeout 4 ros2 node list 2>/dev/null | grep -Fxq /g1_cmd_vel_dry_run; then
-      warn "Dry Run 安全桥已经运行"
+      processes status --file "$PID_FILE" --name dry_bridge || die '同名桥不属于本工作空间 Dry Run'
     else
-      start_process \
-        dry_bridge \
-        ros2 run g1_loco_bridge g1_cmd_vel_dry_run \
-          --ros-args \
-          --params-file "${DRY_CFG}"
-
+      start_process dry_bridge ros2 run g1_loco_bridge g1_cmd_vel_dry_run \
+        --ros-args --params-file "$DRY_CFG"
       wait_for_node /g1_cmd_vel_dry_run 20 || die "Dry Run 安全桥未启动"
-
-      local dry_value
-      dry_value="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run dry_run 2>/dev/null || true)"
-      grep -q "True" <<<"${dry_value}" || die "安全桥不是 dry_run=True，已拒绝继续"
-      ok "Dry Run 安全桥已启动，安全门保持关闭"
     fi
-  fi
-
-  if [[ "${with_dry}" == "yes" ]]; then
-    local guard_value
-    guard_value="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run require_localization 2>/dev/null || true)"
-    grep -q "True" <<<"${guard_value}" || die "安全桥未启用定位联锁，请重建并重启桥"
+    check_navigation_ready dry
+    ok "Dry Run 安全桥已核验，安全门保持关闭"
   fi
 
   echo
@@ -497,24 +443,23 @@ PY
   start_nav2_stack "${with_dry}"
 }
 
+check_navigation_ready() {
+  python3 "$SCRIPT_DIR/g1_navigation_readiness.py" --manifest "$NAV_CONFIG" \
+    --profile "$NAV_PROFILE" --mode "$1" "${@:2}"
+}
+
 enable_dry() {
   source_environment
-  local dry_value
-  dry_value="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run dry_run 2>/dev/null || true)"
-  grep -q "True" <<<"${dry_value}" || die "Dry Run 节点不存在或 dry_run 不是 True"
-
+  check_mapping_not_running
+  processes status --file "$PID_FILE" --name nav2
+  processes status --file "$PID_FILE" --name dry_bridge
   check_tf_chain
-  local guard_value
-  guard_value="$(timeout 8 ros2 param get /g1_cmd_vel_dry_run require_localization 2>/dev/null || true)"
-  grep -q "True" <<<"${guard_value}" || die "安全桥未启用定位联锁"
-  ros2 service call \
-    /g1_loco_bridge/enable \
-    std_srvs/srv/SetBool \
-    "{data: true}"
+  check_navigation_ready dry --enable
 }
 
 disable_dry() {
   source_environment
+  processes status --file "$PID_FILE" --name dry_bridge
   if timeout 4 ros2 service list 2>/dev/null | grep -Fxq /g1_loco_bridge/enable; then
     ros2 service call \
       /g1_loco_bridge/enable \
@@ -547,6 +492,7 @@ show_status() {
     /livox/lidar \
     /livox/imu \
     /Odometry \
+    /Odometry_nav \
     /cloud_registered_body \
     /global_pcd_map \
     /map \
@@ -609,6 +555,8 @@ usage() {
 说明：
   start-auto / start-auto-dry 使用无先验全局搜索；保持机器人静止。
   start-fixed / start-fixed-dry 使用 script/auto_start_pose.env 固定初值。
+  G1_NAV_PROFILE=safe（默认）限制前进 0.20 m/s；target 使用 1.0 m/s。
+  更换速度档须 stop 后重新 start，Nav2 与两种桥一起生成参数。
   G1_LOCALIZATION_TIMEOUT_SEC 设置全局初始化总预算（默认180秒）。
   start-dry 只连接 DryRunBackend，不会向机器人发送真实运动命令。
 EOF_USAGE

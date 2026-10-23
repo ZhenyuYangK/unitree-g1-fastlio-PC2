@@ -6,7 +6,7 @@
 - 功能对齐来源：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，本轮固定到 `afaf7bc5daefc98cfa045c0b50d05e17b7ac2053`（2026-10-20）。
 - [进度核对与分阶段迁移](docs/PC2_MIGRATION_PLAN.md) · [代码结构与整理规则](docs/CODE_STRUCTURE.md)。
 
-**P0 已完成；P1–P3 源码迁移及本阶段本机检查完成；P3 全局定位已通过本机编译和隔离合成测试；PC2 编译与现场检查待执行；P4–P7 待实施。** 保留已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md) 、[P2](docs/migration/P2_ACCEPTANCE.md) 和 [P3 验收记录](docs/migration/P3_ACCEPTANCE.md)。
+**P0 已完成；P1–P4 源码迁移及各阶段本机检查完成；P4 速度反馈、Foxy Nav2 配置和运行联锁已通过本机编译及隔离测试；PC2 编译与现场检查待执行；P5–P7 待实施。** 保留已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md) 、[P2](docs/migration/P2_ACCEPTANCE.md) 、[P3](docs/migration/P3_ACCEPTANCE.md) 和 [P4 验收记录](docs/migration/P4_ACCEPTANCE.md)。
 
 ## 平台与验证范围
 
@@ -16,7 +16,7 @@
 | PC2 适配目标 | 按现有源码维护 Ubuntu 20.04 / ROS 2 Foxy / aarch64 / Python 3.8；上机时核实实际系统和依赖版本 |
 | 功能参考版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
 
-对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2 本机定位/速度桥及 P3 全局匹配编译、合成点云与 Dry Run 测试已通过；Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
+对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2/P3 定位与全局匹配测试及 P4 FAST-LIO/速度桥/导航转换器编译和隔离测试已通过；Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
 
 ## 当前能力
 
@@ -24,7 +24,7 @@
 | --- | --- | --- |
 | 建图 | MID360、FAST-LIO、PCD 保存和二维地图转换；P1 已统一环境、进程归属和保存确认 | PC2 上机检查；后续整体验收 |
 | 定位 | 无先验全局 XY/yaw 搜索、多候选三帧验证、有限重试和诊断；保留人工/固定初值与实时失效联锁 | PC2 多位置/朝向实测及性能验收 |
-| 导航 | Foxy Nav2、`/cmd_vel_nav`、Dry Run 与真机桥；定位失效关门和旧速度清除 | 机体系速度反馈、`/Odometry_nav`、统一速度参数 |
+| 导航 | 机体系速度与协方差、`/Odometry_nav`、Foxy Nav2、统一低速/目标档、实际后端和运行参数核验；定位失效关门 | PC2 速度符号、低速导航及性能实测 |
 | 航点与任务 | 新鲜定位录点、任务校验、顺序导航、取消和恢复标记 | 单点任务结果持久化、双语讲解、人工放行、状态服务 |
 | 巡航 | 多圈、暂停、继续和停止；通过共用任务客户端检查新定位状态 | 后续任务与网页整合，保留 PC2 既有巡航能力 |
 | 语音与网页 | 有厂商语音头文件；没有业务语音包和网页目录 | `g1_audio_bridge`、网页建图/导航/编辑、多设备操作权 |
@@ -142,7 +142,11 @@ bash script/g1_cruise.sh plan
 
 巡航的多圈、暂停和停止说明保留在 [g1_cruise_README.md](script/g1_cruise_README.md)。其中原机器的安装路径和历史验证记录仅供追溯，不代表本轮已复验。
 
-真机桥入口为 `script/g1_navigation_real.sh`，`start` 和 `enable` 都检查新鲜定位与 TF；启动后仍需显式 `enable`。导航真机与 Dry Run 配置均启用定位联锁：状态接收/发布时间超过 1 秒、成功扫描超过 3 秒或状态无效时关门并清空速度。恢复定位后必须重新 enable 并发送新的 Twist。
+导航默认 `G1_NAV_PROFILE=safe`，前进上限 0.20 m/s；在 PC2 低速验收后可显式选择 `target`（1.0 m/s）。两档转速上限均为 0.40 rad/s，线加速/减速 0.20/0.30 m/s²，角加减速 4.0 rad/s²，禁止横移和倒退。修改速度档须停止并重启整个导航栈；Nav2 与两种桥的配套 YAML 由同一生成器写入 `runtime/navigation/`，桥脚本按同一档位启动。直接使用源码桥 YAML 会选择目标档。
+
+FAST-LIO `/Odometry` 的 twist 属于 `body`，Nav2 统一使用旋转后的 `/Odometry_nav`（`nav_base`）；转换器与静态 TF 共用倒装雷达旋转，保留原采样时间戳。详见 [导航包说明](src/g1_nav2_bringup/README.md)。
+
+真机桥入口为 `script/g1_navigation_real.sh`，`start` 和 `enable` 都核对本工作空间进程、Nav2 active、新鲜定位/TF、速度反馈、已加载参数及实际 `unitree_ros2` 后端；启动后仍需显式 `enable`。导航真机与 Dry Run 配置均启用定位联锁：状态接收/发布时间超过 1 秒、成功扫描超过 3 秒或状态无效时关门并清空速度。恢复定位后必须重新 enable 并发送新的 Twist。
 
 ## 原项目图片
 
@@ -187,7 +191,7 @@ colcon test-result --test-result-base build_pc2 --verbose
 
 P0 基线与结构整理 → P1 PC2 环境和路径 → P2 新鲜定位状态与联锁 → P3 全局自动定位 → P4 速度反馈与 Nav2 → P5 语音和任务 → P6 网页控制 → P7 PC2 整体验收。
 
-每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1–P3 已完成源码与本阶段本机检查；参考仓库或本机通过的检查不代表 PC2 已通过。
+每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1–P4 已完成源码与各阶段本机检查；参考仓库或本机通过的检查不代表 PC2 已通过。
 
 ## 许可证
 

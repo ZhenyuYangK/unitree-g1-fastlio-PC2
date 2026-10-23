@@ -27,107 +27,107 @@ public:
   G1CmdVelDryRun()
   : Node("g1_cmd_vel_dry_run")
   {
-    cmd_vel_topic_ = declare_parameter<std::string>(
+    cmd_vel_topic_ = declare_safety_parameter<std::string>(
       "cmd_vel_topic",
       "/cmd_vel_dry_test");
 
-    enable_service_name_ = declare_parameter<std::string>(
+    enable_service_name_ = declare_safety_parameter<std::string>(
       "enable_service_name",
       "/g1_loco_bridge/enable");
 
-    dry_run_ = declare_parameter<bool>(
+    dry_run_ = declare_safety_parameter<bool>(
       "dry_run",
       true);
 
-    require_localization_ = declare_parameter<bool>("require_localization", false);
-    localization_status_topic_ = declare_parameter<std::string>(
+    require_localization_ = declare_safety_parameter<bool>("require_localization", false);
+    localization_status_topic_ = declare_safety_parameter<std::string>(
       "localization_status_topic", "/g1_relocalization/status");
-    localization_status_timeout_sec_ = declare_parameter<double>(
+    localization_status_timeout_sec_ = declare_safety_parameter<double>(
       "localization_status_timeout_sec", 1.0);
-    localization_success_timeout_sec_ = declare_parameter<double>(
+    localization_success_timeout_sec_ = declare_safety_parameter<double>(
       "localization_success_timeout_sec", 3.0);
 
-    allow_reverse_ = declare_parameter<bool>(
+    allow_reverse_ = declare_safety_parameter<bool>(
       "allow_reverse",
       false);
 
-    allow_lateral_ = declare_parameter<bool>(
+    allow_lateral_ = declare_safety_parameter<bool>(
       "allow_lateral",
       false);
 
-    unitree_command_duration_sec_ = declare_parameter<double>(
+    unitree_command_duration_sec_ = declare_safety_parameter<double>(
       "unitree_command_duration_sec",
       0.30);
 
-    unitree_resend_period_sec_ = declare_parameter<double>(
+    unitree_resend_period_sec_ = declare_safety_parameter<double>(
       "unitree_resend_period_sec",
       0.10);
 
-    command_timeout_sec_ = declare_parameter<double>(
+    command_timeout_sec_ = declare_safety_parameter<double>(
       "command_timeout_sec",
       0.5);
 
-    control_period_sec_ = declare_parameter<double>(
+    control_period_sec_ = declare_safety_parameter<double>(
       "control_period_sec",
       0.05);
 
-    report_period_sec_ = declare_parameter<double>(
+    report_period_sec_ = declare_safety_parameter<double>(
       "report_period_sec",
       0.5);
 
-    max_linear_x_ = declare_parameter<double>(
+    max_linear_x_ = declare_safety_parameter<double>(
       "max_linear_x",
       0.20);
 
-    max_linear_y_ = declare_parameter<double>(
+    max_linear_y_ = declare_safety_parameter<double>(
       "max_linear_y",
       0.10);
 
-    max_angular_z_ = declare_parameter<double>(
+    max_angular_z_ = declare_safety_parameter<double>(
       "max_angular_z",
       0.30);
 
-    linear_deadband_ = declare_parameter<double>(
+    linear_deadband_ = declare_safety_parameter<double>(
       "linear_deadband",
       0.01);
 
-    angular_deadband_ = declare_parameter<double>(
+    angular_deadband_ = declare_safety_parameter<double>(
       "angular_deadband",
       0.02);
 
-    min_effective_linear_x_ = declare_parameter<double>(
+    min_effective_linear_x_ = declare_safety_parameter<double>(
       "min_effective_linear_x",
       0.20);
 
-    min_effective_angular_z_ = declare_parameter<double>(
+    min_effective_angular_z_ = declare_safety_parameter<double>(
       "min_effective_angular_z",
       0.40);
 
-    max_linear_accel_ = declare_parameter<double>(
+    max_linear_accel_ = declare_safety_parameter<double>(
       "max_linear_accel",
       0.20);
 
-    max_linear_decel_ = declare_parameter<double>(
+    max_linear_decel_ = declare_safety_parameter<double>(
       "max_linear_decel",
       0.40);
 
-    max_angular_accel_ = declare_parameter<double>(
+    max_angular_accel_ = declare_safety_parameter<double>(
       "max_angular_accel",
       0.40);
 
-    max_angular_decel_ = declare_parameter<double>(
+    max_angular_decel_ = declare_safety_parameter<double>(
       "max_angular_decel",
       0.80);
 
-    reject_abs_linear_x_ = declare_parameter<double>(
+    reject_abs_linear_x_ = declare_safety_parameter<double>(
       "reject_abs_linear_x",
       1.00);
 
-    reject_abs_linear_y_ = declare_parameter<double>(
+    reject_abs_linear_y_ = declare_safety_parameter<double>(
       "reject_abs_linear_y",
       0.50);
 
-    reject_abs_angular_z_ = declare_parameter<double>(
+    reject_abs_angular_z_ = declare_safety_parameter<double>(
       "reject_abs_angular_z",
       1.50);
 
@@ -146,6 +146,12 @@ public:
           unitree_command_duration_sec_,
           unitree_resend_period_sec_);
     }
+
+    // Report the instantiated backend, independently of configuration overrides.
+    rcl_interfaces::msg::ParameterDescriptor backend_descriptor;
+    backend_descriptor.read_only = true;
+    declare_parameter<std::string>("backend_name", backend_->name(), backend_descriptor, true);
+    declare_parameter<bool>("real_backend", backend_->is_real(), backend_descriptor, true);
 
     subscription_ =
       create_subscription<geometry_msgs::msg::Twist>(
@@ -273,6 +279,16 @@ public:
   }
 
 private:
+  // These values are cached by the control loop. Changes require a restart so
+  // parameter queries always describe the limits and mode actually in use.
+  template<typename T>
+  T declare_safety_parameter(const std::string & name, const T & value)
+  {
+    rcl_interfaces::msg::ParameterDescriptor descriptor;
+    descriptor.read_only = true;
+    return declare_parameter<T>(name, value, descriptor);
+  }
+
   static double clamp_symmetric(
     const double value,
     const double absolute_limit)

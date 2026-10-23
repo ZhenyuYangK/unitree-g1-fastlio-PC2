@@ -48,6 +48,8 @@ class ImuProcess
   void set_acc_bias_cov(const V3D &b_a);
   void set_gravity_align(bool enable);
   void set_map_yaw_deg(double yaw_deg);
+  // Raw midpoint gyro used for propagation at the current scan end.
+  const V3D & last_gyro() const { return last_gyro_; }
   Eigen::Matrix<double, 12, 12> Q;
   void Process(const MeasureGroup &meas,  esekfom::esekf<state_ikfom, 12, input_ikfom> &kf_state, PointCloudXYZI::Ptr pcl_un_);
 
@@ -75,6 +77,7 @@ class ImuProcess
   V3D mean_acc;
   V3D mean_gyr;
   V3D angvel_last;
+  V3D last_gyro_ = V3D::Zero();
   V3D acc_s_last;
   double start_timestamp_;
   double last_lidar_end_time_;
@@ -110,6 +113,7 @@ void ImuProcess::Reset()
   mean_acc      = V3D(0, 0, -1.0);
   mean_gyr      = V3D(0, 0, 0);
   angvel_last       = Zero3d;
+  last_gyro_.setZero();
   imu_need_init_    = true;
   start_timestamp_  = -1;
   init_iter_num     = 1;
@@ -331,6 +335,7 @@ void ImuProcess::UndistortPcl(const MeasureGroup &meas, esekfom::esekf<state_ikf
   dt = note * (pcl_end_time - imu_end_time);
   kf_state.predict(dt, Q, in);
   
+  last_gyro_ = in.gyro;
   imu_state = kf_state.get_x();
   last_imu_ = meas.imu.back();
   last_lidar_end_time_ = pcl_end_time;

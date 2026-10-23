@@ -47,6 +47,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <Eigen/Core>
 #include "IMU_Processing.hpp"
+#include "odometry_twist.hpp"
 #include <nav_msgs/msg/odometry.hpp>
 #include <nav_msgs/msg/path.hpp>
 #include <visualization_msgs/msg/marker.hpp>
@@ -637,8 +638,10 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
     odomAftMapped.child_frame_id = "body";
     odomAftMapped.header.stamp = get_ros_time(lidar_end_time);
     set_posestamp(odomAftMapped.pose);
-    pubOdomAftMapped->publish(odomAftMapped);
     auto P = kf.get_P();
+    fast_lio::set_body_twist(
+        odomAftMapped, state_point.rot.toRotationMatrix(), state_point.vel,
+        p_imu->last_gyro(), state_point.bg, P, p_imu->cov_gyr);
     for (int i = 0; i < 6; i ++)
     {
         int k = i < 3 ? i + 3 : i - 3;
@@ -649,6 +652,8 @@ void publish_odometry(const rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPt
         odomAftMapped.pose.covariance[i*6 + 4] = P(k, 1);
         odomAftMapped.pose.covariance[i*6 + 5] = P(k, 2);
     }
+
+    pubOdomAftMapped->publish(odomAftMapped);
 
     geometry_msgs::msg::TransformStamped trans;
     trans.header.frame_id = "camera_init";

@@ -125,4 +125,12 @@ install(
   DESTINATION share/${PROJECT_NAME}
 )
 
+if(BUILD_TESTING)
+  find_package(ament_cmake_gtest REQUIRED)
+  ament_add_gtest(test_odometry_twist test/test_odometry_twist.cpp)
+  target_include_directories(test_odometry_twist PRIVATE include)
+  target_link_libraries(test_odometry_twist Eigen3::Eigen)
+  ament_target_dependencies(test_odometry_twist nav_msgs)
+endif()
+
 ament_package()

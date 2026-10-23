@@ -16,6 +16,8 @@ def generate_launch_description():
 
     params_file = LaunchConfiguration("params_file")
     use_sim_time = LaunchConfiguration("use_sim_time")
+    # One co-located rotation for both static TF and odometry conversion.
+    body_to_nav_rotation_xyzw = [1.0, 0.0, 0.0, 0.0]
     behavior_tree = os.path.join(
         get_package_share_directory("g1_nav2_bringup"),
         "behavior_trees", "navigate_g1_timeout.xml",
@@ -50,9 +52,20 @@ def generate_launch_description():
             output="screen",
             arguments=[
                 "0", "0", "0",
-                "1", "0", "0", "0",
+                *[str(value) for value in body_to_nav_rotation_xyzw],
                 "body", "nav_base",
             ],
+        ),
+
+        Node(
+            package="g1_nav2_bringup",
+            executable="navigation_odometry",
+            name="navigation_odometry",
+            output="screen",
+            parameters=[{
+                "use_sim_time": use_sim_time,
+                "body_to_nav_rotation_xyzw": body_to_nav_rotation_xyzw,
+            }],
         ),
 
         Node(

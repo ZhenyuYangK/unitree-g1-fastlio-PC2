@@ -107,6 +107,11 @@ if(BUILD_TESTING)
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_localization_guard.py"
       --bridge $<TARGET_FILE:g1_cmd_vel_dry_run>
     TIMEOUT 180)
+  ament_add_test(test_navigation_limits
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/test/test_navigation_limits.py"
+      --bridge $<TARGET_FILE:g1_cmd_vel_dry_run>
+    TIMEOUT 60)
 endif()
 
 ament_package()
