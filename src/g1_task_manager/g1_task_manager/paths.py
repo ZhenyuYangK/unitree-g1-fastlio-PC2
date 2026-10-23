@@ -23,5 +23,9 @@ def default_waypoints_file():
     return site_path('G1_WAYPOINTS_FILE', 'task_data/maps/laboratory_map_v1/waypoints.yaml')
 
 
+def get_default_waypoints_file():
+    return default_waypoints_file()
+
+
 def default_missions_file():
     return str(site_path('G1_MISSIONS_FILE', 'task_data/missions/missions.yaml'))

@@ -1,20 +1,19 @@
 # G1 已有导航点巡航与暂停
 
-新增 `script/g1_cruise.sh`，为单文件 Bash 入口（内嵌 Python），无需配套 Python 文件、无需编译。复用本工作空间的 `g1_task_manager` 源码中的导航客户端、安全门与任务收尾代码。原有导航点管理双文件脚本继续使用。
+`script/g1_cruise.sh` 为 Bash 兼容入口，转发到任务包的巡航模块。复用本工作空间的 `g1_task_manager` 源码中的导航客户端、安全门与任务收尾代码。原有导航点管理双文件脚本继续使用。
 
-## 安装
+## 环境
 
-将 g1_cruise_scripts.tar.gz 放到 PC2 主目录：
+P5 起 `script/g1_cruise.sh` 为兼容转发入口，Python 业务位于
+`src/g1_task_manager/g1_task_manager/cruise.py`，须随工作空间一起部署。
+系统 Python 3.8、PyYAML、ROS 2 Foxy、Nav2 和真实安全桥由 P1 平台环境加载；
+不再使用旧单文件压缩包覆盖入口。
 
 ```bash
-export G1_WS="$(pwd)"
-export WS="$G1_WS"  # 在工作空间根目录运行
-export G1_WS="$WS"
-tar -xzf "$HOME/g1_cruise_scripts.tar.gz" -C "$WS"
-bash "$WS/script/g1_cruise.sh" help
+export G1_WS="$PWD"  # 在工作空间根目录运行
+export WS="$G1_WS"
+bash script/g1_cruise.sh help
 ```
-
-要求现有 `src/g1_task_manager`、系统 Python 3.8、PyYAML、ROS2 Foxy、Nav2 和真实安全桥。优先使用已有 `script/g1_run_verified.sh` 加载执行环境；没有该脚本时加载 Foxy 和本工作空间 install/setup.bash。继承终端中的 DDS 配置，不改变构建类型。
 
 ## 预览和执行
 
@@ -48,7 +47,7 @@ bash "$WS/script/g1_cruise.sh" resume
 bash "$WS/script/g1_cruise.sh" stop
 ```
 
-这些命令只控制本脚本启动的巡航，不控制原有 `g1_mission roundtrip`。采用本机 UNIX socket 通信，不新增 ROS 服务；必须在同一台 PC2、同一工作空间下运行。
+这些命令只控制本脚本启动的巡航，不控制原有 `g1_mission roundtrip`。巡航控制采用本机 UNIX socket；任务执行器的 ROS 状态/放行服务不会代替巡航控制；必须在同一台 PC2、同一工作空间下运行。
 
 | 状态 | 含义 |
 | --- | --- |
@@ -66,7 +65,7 @@ bash "$WS/script/g1_cruise.sh" stop
 
 `pause` / `stop` 最多等待约40秒给出确认，超时只表示请求尚未确认，不能视为停止成功。`resume` 返回请求接受，不代表已完成定位检查。仅 `PAUSED` 可继续；停止请求不可撤销。
 
-途中暂停：先关门，再取消本巡航发送的 Nav2 目标。继续时重新检查 TF/fitness，向尚未完成的同一导航点重新发送目标，Nav2 重新规划；该次目标超时重新计时。若目标已成功结束，则下一步访问后续点。
+途中暂停：先关门，再取消本巡航发送的 Nav2 目标。继续时重新检查新鲜定位状态及 TF/fitness，向尚未完成的同一导航点重新发送目标，Nav2 重新规划；该次目标超时重新计时。若目标已成功结束，则下一步访问后续点。
 
 到点停留时暂停：保存剩余停留时间；继续后完成剩余停留，再去下一点。暂停不会占用目标执行超时。
 
@@ -115,4 +114,4 @@ bash "$WS/script/g1_cruise.sh" start --points point_a home --timeout 90 --dwell 
 
 已通过 Bash 语法、Python 3.8 语法、真实上传点文件的路线预览，以及基于现有 execute_mission 的模拟执行：有序多圈、途中暂停后重试当前点、到点停留暂停、停止、定位失败不重试、关门/取消未确认时拒绝继续、循环退出、失联状态判定。
 
-当前执行环境没有 ROS2 Foxy，也禁止创建 UNIX socket，因此没有完成真实 Nav2/安全桥通信或跨进程 socket 联调；这两部分须在 PC2 验证。
+P5 已在 Humble 本机通过升级后执行器的多圈/循环、途中暂停重试、到站暂停和停留剩余时间回归；Foxy、真实 Nav2/安全桥及 PC2 跨进程巡航控制仍待现场验收。任务到站 `g1_waypoints.sh continue` 不能替代巡航途中 `resume`。

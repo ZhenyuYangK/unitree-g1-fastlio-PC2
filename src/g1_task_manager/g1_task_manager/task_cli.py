@@ -3,16 +3,11 @@ import math
 import sys
 
 from g1_task_manager.mission_cli import add_parsers, run_command
+from g1_task_manager.paths import get_default_waypoints_file
 from g1_task_manager.waypoint_store import (
     WaypointConfigError,
     WaypointStore,
 )
-
-from .paths import default_waypoints_file
-
-
-def get_default_waypoints_file():
-    return default_waypoints_file()
 
 
 def build_parser():
@@ -56,6 +51,8 @@ def build_parser():
     )
 
     add_parsers(subparsers)
+    from .mission_control_cli import add_parsers as add_control_parsers
+    add_control_parsers(subparsers)
     return parser
 
 
@@ -90,6 +87,9 @@ def main(args=None):
     parsed = parser.parse_args(args=args)
 
     try:
+        if parsed.command in ('status', 'continue'):
+            from .mission_control_cli import run_command as control_command
+            return control_command(parsed)
         if parsed.command == "goto" and (
             not math.isfinite(parsed.timeout) or parsed.timeout <= 0.0
         ):

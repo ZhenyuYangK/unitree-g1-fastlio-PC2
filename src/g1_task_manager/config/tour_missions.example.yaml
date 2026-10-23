@@ -1,0 +1,95 @@
+# Copy to a separate mission file and select it with --missions-file.
+# Keep existing missions.yaml unchanged. All speech text and wait_sec values are
+# examples: replace the content and calibrate each wait on the robot before use.
+# Each station, including the final station, requires terminal continue.
+schema_version: 1
+map_id: laboratory_map_v1
+missions:
+  five_point_tour:
+    name: 五个讲解点双语参观
+    steps:
+      - waypoint: point_01
+        timeout_sec: 180.0
+        dwell_sec: 0.0
+        advance_mode: manual
+        speech:
+          mode: tts
+          language: both
+          content:
+            zh:
+              speaker_id: 0
+              text: 大家好，欢迎来到实验室。接下来我将带领大家依次参观五个讲解点。
+              wait_sec: 18.0
+            en:
+              speaker_id: 1
+              text: Welcome to our laboratory. I will guide you through five stops during this tour.
+              wait_sec: 18.0
+          failure_policy: abort
+      - waypoint: point_02
+        timeout_sec: 180.0
+        dwell_sec: 0.0
+        advance_mode: manual
+        speech:
+          mode: tts
+          language: both
+          content:
+            zh:
+              speaker_id: 0
+              text: 这里是第二个讲解点。负责人将为大家介绍本区域的研究工作。
+              wait_sec: 16.0
+            en:
+              speaker_id: 1
+              text: This is our second stop. Our host will introduce the research conducted in this area.
+              wait_sec: 18.0
+          failure_policy: abort
+      - waypoint: point_03
+        timeout_sec: 180.0
+        dwell_sec: 0.0
+        advance_mode: manual
+        speech:
+          mode: tts
+          language: both
+          content:
+            zh:
+              speaker_id: 0
+              text: 我们已到达第三个讲解点。请听负责人介绍相关设备与实验流程。
+              wait_sec: 16.0
+            en:
+              speaker_id: 1
+              text: We have reached the third stop. Our host will explain the equipment and experimental procedures.
+              wait_sec: 18.0
+          failure_policy: abort
+      - waypoint: point_04
+        timeout_sec: 180.0
+        dwell_sec: 0.0
+        advance_mode: manual
+        speech:
+          mode: tts
+          language: both
+          content:
+            zh:
+              speaker_id: 0
+              text: 这里是第四个讲解点。大家可以在负责人补充介绍后自由提问。
+              wait_sec: 16.0
+            en:
+              speaker_id: 1
+              text: This is the fourth stop. You are welcome to ask questions after our host's introduction.
+              wait_sec: 18.0
+          failure_policy: abort
+      - waypoint: point_05
+        timeout_sec: 180.0
+        dwell_sec: 0.0
+        advance_mode: manual
+        speech:
+          mode: tts
+          language: both
+          content:
+            zh:
+              speaker_id: 0
+              text: 我们已到达本次参观的最后一站。感谢大家，请听负责人作最后的补充介绍。
+              wait_sec: 18.0
+            en:
+              speaker_id: 1
+              text: This is the final stop of our tour. Thank you for visiting. Our host will now share some closing remarks.
+              wait_sec: 20.0
+          failure_policy: abort

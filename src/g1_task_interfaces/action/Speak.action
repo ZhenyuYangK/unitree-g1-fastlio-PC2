@@ -1,0 +1,11 @@
+# One language per goal. A successful request is followed by this calibrated wait.
+string text
+int32 speaker_id
+float64 wait_sec
+---
+# Success means the configured wait elapsed, not confirmed playback completion.
+bool success
+string message
+---
+string state
+float64 remaining_sec

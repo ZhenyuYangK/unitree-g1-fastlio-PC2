@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>g1_audio_bridge</name>
+  <version>0.1.0</version>
+  <description>Cancelable Unitree G1 speech action with calibrated playback waits.</description>
+  <maintainer email="g1test@example.com">g1test</maintainer>
+  <license>BSD-3-Clause</license>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rcl_interfaces</depend>
+  <depend>g1_task_interfaces</depend>
+  <depend>unitree_api</depend>
+  <test_depend>ament_cmake_test</test_depend>
+  <test_depend>rclpy</test_depend>
+  <test_depend>action_msgs</test_depend>
+  <test_depend>rmw_fastrtps_cpp</test_depend>
+  <export><build_type>ament_cmake</build_type></export>
+</package>

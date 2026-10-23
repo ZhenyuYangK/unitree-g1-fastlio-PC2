@@ -1,0 +1,6 @@
+g1_audio_bridge:
+  ros__parameters:
+    # Real robot audio requires explicit dry_run:=false.
+    dry_run: true
+    volume: -1  # Keep current volume, or set 0..100.
+    app_name: g1_audio_bridge

@@ -6,21 +6,28 @@ import time
 import uuid
 
 import rclpy
+from rclpy.action import ActionClient
+from rclpy.node import Node
 from action_msgs.msg import GoalStatusArray
 from action_msgs.srv import CancelGoal
 from nav2_msgs.action import NavigateToPose
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from std_srvs.srv import SetBool
 from unique_identifier_msgs.msg import UUID
+from g1_task_interfaces.action import Speak
+from g1_task_interfaces.srv import GetMissionState, ContinueMission
 
 from .nav2_client import Nav2WaypointClient, STATUS_NAMES
 from .mission_engine import MissionError, MissionCanceled
+from .mission_control import MissionControl, MissionProgress
+from .audio_readiness import AudioReadinessError, wait_for_audio
+from .task_events import safe_print as print
 
 
 TERMINAL = (4, 5, 6)  # action_msgs: SUCCEEDED / CANCELED / ABORTED
 
 
-class MissionTransport:
+class MissionTransport(MissionProgress):
     def __init__(self, node, gate_service="/g1_loco_bridge/enable_real_nav",
                  max_tf_age_sec=0.5, max_fitness=2.0, max_fitness_age_sec=5.0):
         from .health import validate_limits
@@ -46,6 +53,33 @@ class MissionTransport:
         self.result_future = None
         self.old_handlers = {}
         self.cleanup = False
+        self._setup_control()
+
+    def _setup_control(self, simulated=False):
+        self.control = MissionControl(simulated=simulated)
+        self.state_service = self.node.create_service(
+            GetMissionState, '/g1_task/get_state', self._get_state)
+        self.continue_service = self.node.create_service(
+            ContinueMission, '/g1_task/continue', self._continue)
+        self.audio = None if simulated else ActionClient(self.node, Speak, '/g1_audio/speak')
+        self.audio_cancel = None if simulated else self.node.create_client(
+            CancelGoal, '/g1_audio/speak/_action/cancel_goal')
+        self.audio_goal_id = None
+        self.audio_send = None
+        self.audio_handle = None
+        self.audio_result = None
+        self.audio_cancel_futures = []
+
+    def _get_state(self, request, response):
+        del request
+        for key, value in self.control.snapshot().items():
+            setattr(response, key, value)
+        return response
+
+    def _continue(self, request, response):
+        response.accepted, response.message = self.control.continue_wait(
+            request.run_id, request.wait_id)
+        return response
 
     def install_signals(self):
         # init之后安装Python处理器，使Ctrl+C先执行关门/取消，再关闭ROS context。
@@ -58,8 +92,21 @@ class MissionTransport:
             raise MissionCanceled('收到信号{}'.format(signum))
 
     def begin_cleanup(self):
+        if self.cleanup:
+            return
         self.cleanup = True
         self.monitoring = False
+        # No audio wait/RPC response may delay motion cleanup. A late goal
+        # acceptance is canceled again by _audio_accepted while cleanup spins.
+        if self.audio_goal_id is not None:
+            request = CancelGoal.Request()
+            request.goal_info.goal_id = self.audio_goal_id
+            try:
+                self.audio_cancel_futures.append(self.audio_cancel.call_async(request))
+                if self.audio_handle is not None and self.audio_handle.accepted:
+                    self.audio_cancel_futures.append(self.audio_handle.cancel_goal_async())
+            except Exception as exc:
+                self.node.get_logger().warning('语音停止请求未确认：{}'.format(exc))
 
     def restore_signals(self):
         for sig, previous in self.old_handlers.items():
@@ -106,6 +153,15 @@ class MissionTransport:
     def close_gate(self):
         self.monitoring = False
         self._gate(False)
+
+    def preflight(self, mission):
+        if self.audio is not None and any(step.get('speech') for step in mission['steps']):
+            print('[INFO] 出发前检查真实语音桥（不发送播报请求）', flush=True)
+            try:
+                wait_for_audio(self.node, self.audio, self._spin)
+            except AudioReadinessError as error:
+                raise MissionError('语音预检失败：{}'.format(error)) from error
+            print('[OK] 语音预检通过', flush=True)
 
     def ready(self):
         self.node.wait_until_ready(**self.health_limits)
@@ -154,6 +210,66 @@ class MissionTransport:
         print('[INFO] 安全门关闭，停留{:.1f}秒'.format(seconds), flush=True)
         self._spin(seconds)
 
+    def _audio_accepted(self, future):
+        try:
+            self.audio_handle = future.result()
+            if self.cleanup and self.audio_handle is not None and self.audio_handle.accepted:
+                self.audio_cancel_futures.append(self.audio_handle.cancel_goal_async())
+        except Exception as exc:
+            self.node.get_logger().warning('语音响应异常：{}'.format(exc))
+
+    def speak(self, content):
+        deadline = time.monotonic() + 5.0
+        while not self.audio.server_is_ready():
+            if time.monotonic() >= deadline:
+                raise MissionError('语音 Action /g1_audio/speak 不可用')
+            self._spin(0.05)
+        self.audio_goal_id = UUID(uuid=list(uuid.uuid4().bytes))
+        self.audio_handle = None
+        self.audio_result = None
+        goal = Speak.Goal(text=content['text'], speaker_id=content['speaker_id'],
+                          wait_sec=content['wait_sec'])
+        self.audio_send = self.audio.send_goal_async(goal, goal_uuid=self.audio_goal_id)
+        self.audio_send.add_done_callback(self._audio_accepted)
+        handle = self._wait(self.audio_send, 10.0)
+        if handle is None or not handle.accepted:
+            raise MissionError('语音请求被拒绝')
+        self.audio_handle = handle
+        self.audio_result = handle.get_result_async()
+        result = self._wait(self.audio_result, content['wait_sec'] + 20.0)
+        if result is None or result.status != 4 or not result.result.success:
+            raise MissionError('语音失败：{}'.format(
+                getattr(getattr(result, 'result', None), 'message', '无有效结果')))
+        self.audio_goal_id = None
+
+    def finish_cleanup(self):
+        if self.audio_goal_id is None:
+            return []
+        deadline = time.monotonic() + 5.0
+        while time.monotonic() < deadline:
+            if self.audio_send is not None and self.audio_send.done() and self.audio_handle is None:
+                self._audio_accepted(self.audio_send)
+            pending_send = self.audio_send is not None and not self.audio_send.done()
+            pending_cancel = any(not future.done() for future in self.audio_cancel_futures)
+            if not pending_send and not pending_cancel:
+                # A terminal result or an accepted cancel is enough; never wait
+                # for the SDK's PlayStop response or physical playback here.
+                if self.audio_handle is None or not self.audio_handle.accepted:
+                    return []
+                if self.audio_result is not None and self.audio_result.done():
+                    return []
+                if any(future.result() is not None and future.result().goals_canceling
+                       for future in self.audio_cancel_futures):
+                    return []
+                return ['语音停止请求未被接受；运动收尾已先行完成，需现场确认语音状态']
+            self._spin(0.05)
+        return ['语音接受/取消响应超时；运动收尾已先行完成，语音停止未确认']
+
+    def destroy(self):
+        if self.audio is not None:
+            self.audio.destroy()
+        self.node.destroy_node()
+
     def cancel_pending(self):
         if self.goal_id is None:
             return True
@@ -191,7 +307,53 @@ class MissionTransport:
         return False
 
 
-def create_transport(global_frame, base_frame, **options):
+class SimulatedMissionTransport(MissionTransport):
+    """ROS control services with simulated navigation, gate and speech only."""
+    def __init__(self, node, time_scale=1.0):
+        self.node = node
+        self.time_scale = time_scale
+        self.old_handlers = {}
+        self.cleanup = False
+        self.monitoring = False
+        self._setup_control(simulated=True)
+
+    def close_gate(self):
+        print('[SIM] GATE CLOSED（未调用运动接口）', flush=True)
+
+    def open_gate(self):
+        print('[SIM] GATE OPEN（未调用运动接口）', flush=True)
+
+    def ready(self):
+        print('[SIM] 模拟定位和 Nav2 检查', flush=True)
+        self._spin(0.1 * self.time_scale)
+
+    def prepare_goal(self, step):
+        print('[SIM] 导航到 {}'.format(step['waypoint']), flush=True)
+
+    def wait_result(self, timeout):
+        self._spin(min(0.2, timeout) * self.time_scale)
+        return 'SUCCEEDED'
+
+    def speak(self, content):
+        print('[SIM] TTS speaker={} wait={}s: {}'.format(
+            content['speaker_id'], content['wait_sec'], content['text']), flush=True)
+        self._spin(content['wait_sec'] * self.time_scale)
+
+    def dwell(self, seconds):
+        self._spin(seconds * self.time_scale)
+
+    def cancel_pending(self):
+        return True
+
+
+def create_transport(global_frame, base_frame, simulated=False, time_scale=1.0, **options):
+    if simulated:
+        node = Node('g1_simulated_mission')
+        try:
+            return SimulatedMissionTransport(node, time_scale=time_scale)
+        except BaseException:
+            node.destroy_node()
+            raise
     node = Nav2WaypointClient(global_frame, base_frame)
     try:
         return MissionTransport(node, **options)

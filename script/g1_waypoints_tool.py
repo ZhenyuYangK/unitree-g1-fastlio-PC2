@@ -44,6 +44,10 @@ def parser():
     delete = sub.add_parser('delete', help='删除未被指定任务文件引用的点；默认仅预览')
     delete.add_argument('id')
     delete.add_argument('--yes', action='store_true', help='执行删除并备份')
+    from g1_task_manager.mission_cli import add_parsers
+    from g1_task_manager.mission_control_cli import add_parsers as add_control_parsers
+    add_parsers(sub, missions_default=argparse.SUPPRESS)
+    add_control_parsers(sub)
     return p
 
 
@@ -81,6 +85,9 @@ def commit(path, original, data, operation, yaml, Store):
 
 
 def run(args):
+    if args.command in ('status', 'continue'):
+        from g1_task_manager.mission_control_cli import run_command
+        return run_command(args)
     path = Path(args.file).expanduser().resolve()
     missions_path = Path(args.missions_file).expanduser().resolve()
     if args.command == 'path':
@@ -105,6 +112,9 @@ def run(args):
     try:
         original = path.read_bytes()
         store = WaypointStore(path).load()
+        if args.command in ('mission', 'missions'):
+            from g1_task_manager.mission_cli import run_command
+            return run_command(args, store)
         if args.command == 'list':
             print('file: {}\nmap_id: {}\nframe: {} -> {}'.format(path, store.map_id, store.frame_id, store.base_frame))
             print('ID\tNAME\tX(m)\tY(m)\tYAW(rad)')

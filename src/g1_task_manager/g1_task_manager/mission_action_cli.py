@@ -31,10 +31,11 @@ def main(args=None):
         send = client.send_goal_async(
             ExecuteMission.Goal(mission_id=parsed.mission_id),
             feedback_callback=lambda msg: print(
-                '{} {}/{} {} distance={:.3f}'.format(
+                '{} {}/{} {} distance={:.3f} next={} {}'.format(
                     msg.feedback.state, msg.feedback.current_step,
                     msg.feedback.total_steps, msg.feedback.current_waypoint,
-                    msg.feedback.distance_remaining), flush=True))
+                    msg.feedback.distance_remaining, msg.feedback.next_waypoint,
+                    msg.feedback.message), flush=True))
         # Keep waiting after Ctrl+C if goal acceptance is pending: cancellation
         # needs the accepted handle. Never assume a client exit stops motion.
         while not send.done() and rclpy.ok():

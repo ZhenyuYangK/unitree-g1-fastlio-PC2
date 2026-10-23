@@ -2,6 +2,11 @@ cmake_minimum_required(VERSION 3.5)
 project(g1_task_interfaces)
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
-rosidl_generate_interfaces(${PROJECT_NAME} "action/ExecuteMission.action")
+rosidl_generate_interfaces(${PROJECT_NAME}
+  "action/ExecuteMission.action"
+  "action/Speak.action"
+  "srv/GetMissionState.srv"
+  "srv/ContinueMission.srv"
+)
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

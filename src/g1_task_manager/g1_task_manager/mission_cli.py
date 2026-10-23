@@ -1,25 +1,26 @@
 """任务CLI、互斥锁和结果记录。check-only不创建ROS节点。"""
 import fcntl
 import json
+import math
 import os
 from datetime import datetime
 from pathlib import Path
 
-from .task_events import emit_event
+from .task_events import emit_event, safe_print as print
 from .health import validate_limits
 from .mission_store import load_missions
+from .paths import default_missions_file, workspace
 from .waypoint_store import WaypointConfigError
 
 
-from .paths import default_missions_file, workspace
-
-
-def add_parsers(subparsers):
+def add_parsers(subparsers, missions_default=None):
+    if missions_default is None:
+        missions_default = default_missions_file()
     listing = subparsers.add_parser('missions', help='列出已校验的多点任务')
-    listing.add_argument('--missions-file', default=default_missions_file())
+    listing.add_argument('--missions-file', default=missions_default)
     mission = subparsers.add_parser('mission', help='检查或执行多点任务')
     mission.add_argument('mission_id')
-    mission.add_argument('--missions-file', default=default_missions_file())
+    mission.add_argument('--missions-file', default=missions_default)
     mission.add_argument('--gate-service', default='/g1_loco_bridge/enable_real_nav')
     mission.add_argument('--max-tf-age', type=float, default=0.5)
     mission.add_argument('--max-fitness', type=float, default=2.0)
@@ -27,6 +28,9 @@ def add_parsers(subparsers):
     mode = mission.add_mutually_exclusive_group(required=True)
     mode.add_argument('--check-only', action='store_true', help='只检查全部步骤，不连接ROS')
     mode.add_argument('--execute', action='store_true', help='实际执行并自动管理真实控制安全门')
+    mode.add_argument('--simulate', action='store_true', help='模拟导航/安全门/语音，保留真实ROS人工放行服务')
+    mission.add_argument('--time-scale', type=float, default=1.0,
+                         help='仅模拟：播报和停留时间缩放，人工等待始终不超时')
 
 
 def _write_json(path, data):
@@ -51,6 +55,10 @@ def run_command(parsed, store):
     if parsed.mission_id not in missions:
         raise WaypointConfigError('任务不存在：{}'.format(parsed.mission_id))
     validate_limits(parsed.max_tf_age, parsed.max_fitness, parsed.max_fitness_age)
+    if not math.isfinite(parsed.time_scale) or parsed.time_scale <= 0:
+        raise WaypointConfigError('time-scale必须是有限正数')
+    if not parsed.simulate and parsed.time_scale != 1.0:
+        raise WaypointConfigError('time-scale仅可用于--simulate')
     mission = missions[parsed.mission_id]
     print('[INFO] 任务 {}：{}'.format(mission['id'], mission['name']), flush=True)
     for index, step in enumerate(mission['steps'], 1):
@@ -58,6 +66,11 @@ def run_command(parsed, store):
         print('  {}. {} x={:.3f} y={:.3f} yaw={:.3f} timeout={}s dwell={}s'.format(
             index, step['waypoint'], pose['x'], pose['y'], pose['yaw'],
             step['timeout_sec'], step['dwell_sec']), flush=True)
+        if step.get('speech'):
+            print('     speech={} advance_mode={}'.format(
+                step['speech']['language'], step['advance_mode']), flush=True)
+        elif step.get('advance_mode') == 'manual':
+            print('     advance_mode=manual', flush=True)
     if parsed.check_only:
         emit_event('result', state='CHECKED', gate_closed=False, goals_terminal=False,
                    report_path='', errors=[])
@@ -72,6 +85,8 @@ def run_command(parsed, store):
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError as exc:
             raise WaypointConfigError('已有多点任务运行，请在原终端Ctrl+C停止') from exc
+        if parsed.simulate:
+            return _run_simulated(store, mission, parsed)
         blocker = runtime / 'recovery_required.json'
         if blocker.exists():
             raise WaypointConfigError('上次任务未完成收尾，请按README恢复流程处理：{}'.format(blocker))
@@ -121,7 +136,35 @@ def _run_ros(store, mission, metadata, report_path, blocker, parsed):
         if transport is not None:
             transport.begin_cleanup()
             try:
-                transport.node.destroy_node()
+                transport.destroy()
+            finally:
+                transport.restore_signals()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def _run_simulated(store, mission, parsed):
+    from .mission_engine import execute_mission
+    from .mission_ros import create_transport
+    import rclpy
+
+    print('[SIM] 模拟演练：不调用 Nav2、定位、安全门或机器人语音接口。', flush=True)
+    transport = None
+    try:
+        rclpy.init(args=[])
+        transport = create_transport(store.frame_id, store.base_frame, simulated=True,
+                                     time_scale=parsed.time_scale)
+        transport.install_signals()
+        report = execute_mission(mission, transport, lambda event: print('[SIM] ' + event, flush=True))
+        report['simulated'] = True
+        emit_event('result', **report)
+        print('[SIM] {} {}'.format(report['state'], '; '.join(report['errors'])), flush=True)
+        return {'SUCCEEDED': 0, 'CANCELED': 130}.get(report['state'], 2)
+    finally:
+        if transport is not None:
+            transport.begin_cleanup()
+            try:
+                transport.destroy()
             finally:
                 transport.restore_signals()
         if rclpy.ok():

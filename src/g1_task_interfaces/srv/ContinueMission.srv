@@ -1,0 +1,6 @@
+# Both identifiers must match the current unconsumed manual wait.
+string run_id
+string wait_id
+---
+bool accepted
+string message

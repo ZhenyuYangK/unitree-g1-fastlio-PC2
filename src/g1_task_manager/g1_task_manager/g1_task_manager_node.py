@@ -4,6 +4,7 @@ import json
 import os
 import signal
 import threading
+import uuid
 
 import rclpy
 from rclpy.action import ActionClient, ActionServer, CancelResponse, GoalResponse
@@ -12,15 +13,15 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
+from rcl_interfaces.msg import ParameterDescriptor
 from ament_index_python.packages import get_package_prefix
 from g1_task_interfaces.action import ExecuteMission
 
 from .health import validate_limits
-from .mission_cli import default_missions_file, workspace
-from .mission_store import load_missions
+from .mission_cli import default_missions_file, workspace, _write_json
 from .task_cli import get_default_waypoints_file
-from .waypoint_store import WaypointStore
 from .worker import run_worker
+from .action_plan import validate_request, action_plan
 
 
 class G1TaskManagerNode(Node):
@@ -36,7 +37,7 @@ class G1TaskManagerNode(Node):
             'max_tf_age_sec': 0.5, 'max_fitness': 2.0, 'max_fitness_age_sec': 5.0,
         }
         for key, default in defaults.items():
-            self.declare_parameter(key, default)
+            self.declare_parameter(key, default, ParameterDescriptor(read_only=True))
         # These settings are intentionally latched at startup. Restart to change.
         self.settings = {key: self.get_parameter(key).value for key in defaults}
         validate_limits(self.settings['max_tf_age_sec'], self.settings['max_fitness'],
@@ -52,7 +53,7 @@ class G1TaskManagerNode(Node):
         self.server = ActionServer(
             self, ExecuteMission, '/g1_task/execute_mission', self.execute,
             goal_callback=self.goal_callback, cancel_callback=self.cancel_callback,
-            callback_group=self.group)
+            callback_group=self.group, result_timeout=86400)
         # Keep the existing topic as an adapter to the very same Action admission.
         self.legacy_client = ActionClient(self, ExecuteMission,
                                          '/g1_task/execute_mission',
@@ -79,10 +80,7 @@ class G1TaskManagerNode(Node):
                 self.get_logger().warning('Rejected: BUSY, shutting down, or STOP_UNCONFIRMED')
                 return GoalResponse.REJECT
             try:
-                store = WaypointStore(self.settings['waypoints_file']).load()
-                missions = load_missions(self.settings['missions_file'], store)
-                if request.mission_id not in missions:
-                    raise ValueError('Unknown mission: ' + request.mission_id)
+                validate_request(request.mission_id, self.settings['waypoints_file'], self.settings['missions_file'])
                 if (workspace() / 'runtime/missions/recovery_required.json').exists():
                     raise ValueError('recovery_required.json exists; verify safe stop first')
             except Exception as exc:
@@ -136,7 +134,8 @@ class G1TaskManagerNode(Node):
     def execute(self, goal_handle):
         mission = goal_handle.request.mission_id
         progress = dict(state='STARTING', current_waypoint='', current_step=0,
-                        total_steps=0, distance_remaining=-1.0, message='')
+                        total_steps=0, distance_remaining=-1.0, message='', run_id='',
+                        wait_id='', next_waypoint='', simulated=False)
 
         class Cancellation:
             def is_set(inner):
@@ -153,11 +152,14 @@ class G1TaskManagerNode(Node):
             # A disconnected feedback subscriber must not abandon the worker.
             try:
                 goal_handle.publish_feedback(ExecuteMission.Feedback(**progress))
-                self.publish_status(progress['state'], mission,
+                self.publish_status(progress['state'], mission, progress['message'],
                                     current_step=progress['current_step'],
                                     total_steps=progress['total_steps'],
                                     current_waypoint=progress['current_waypoint'],
-                                    distance_remaining=progress['distance_remaining'])
+                                    distance_remaining=progress['distance_remaining'],
+                                    run_id=progress['run_id'], wait_id=progress['wait_id'],
+                                    next_waypoint=progress['next_waypoint'],
+                                    simulated=progress['simulated'])
             except Exception as exc:
                 self.get_logger().warning('Feedback publish failed: ' + str(exc))
 
@@ -173,8 +175,12 @@ class G1TaskManagerNode(Node):
                       goals_terminal=False, report_path='', errors=[])
         try:
             self.publish_status('STARTING', mission)
-            report = run_worker(command, Cancellation(), on_event,
-                                lambda line: self.get_logger().info('[MISSION] ' + line))
+            with action_plan(mission, opts['waypoints_file'], opts['missions_file'],
+                             workspace() / 'runtime/missions/plans') as (resolved_id, resolved_file):
+                command[4] = resolved_id
+                command[6] = resolved_file
+                report = run_worker(command, Cancellation(), on_event,
+                                    lambda line: self.get_logger().info('[MISSION] ' + line))
         except Exception as exc:
             report['errors'] = [str(exc)]
         # Do not announce SUCCEEDED/CANCELED when cleanup is unconfirmed.
@@ -189,6 +195,17 @@ class G1TaskManagerNode(Node):
             goals_terminal=bool(report.get('goals_terminal', False)),
             report_path=report.get('report_path', ''))
         try:
+            # Preserve the result by exact Action UUID even if the server or
+            # gateway restarts after motion cleanup but before client receipt.
+            identifier = str(uuid.UUID(bytes=bytes(goal_handle.goal_id.uuid)))
+            try:
+                result_path = workspace() / 'runtime/missions/actions' / (identifier + '.json')
+                result_path.parent.mkdir(parents=True, exist_ok=True)
+                _write_json(result_path, dict(goal_id=identifier, run_id=progress['run_id'], mission_id=mission,
+                            state=state, gate_closed=result.gate_closed, goals_terminal=result.goals_terminal,
+                            report_path=result.report_path, message=result.message))
+            except OSError as exc:
+                self.get_logger().error('Cannot persist Action result: ' + str(exc))
             if state in ('CHECKED', 'SUCCEEDED'):
                 goal_handle.succeed()
             elif state == 'CANCELED' and goal_handle.is_cancel_requested:
@@ -198,6 +215,7 @@ class G1TaskManagerNode(Node):
                 # Report CANCELED in the payload, use ABORTED at protocol level.
                 goal_handle.abort()
             self.publish_status(state, mission, result.message,
+                                run_id=progress['run_id'],
                                 gate_closed=result.gate_closed,
                                 goals_terminal=result.goals_terminal,
                                 report_path=result.report_path)

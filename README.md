@@ -1,12 +1,12 @@
 # Unitree G1 EDU+ 29DOF · PC2 建图、导航与讲解
 
-面向 **G1 EDU+ 29DOF 的 PC2** 维护的原生 ROS 2 项目，包含 MID360、FAST-LIO、NDT 重定位、Nav2、速度安全桥、航点管理和多点任务。
+本仓库是 **Unitree G1 EDU+ 29DOF 建图、导航与讲解项目的 PC2 平台版本**，包含 MID360、FAST-LIO、NDT 重定位、Nav2、速度安全桥、航点管理和多点任务。本仓库与 `unitree-fastlio-ubuntu22.04` 属于同一项目，分别面向 PC2 和 Ubuntu 22.04 x86_64 运行平台维护，按各自的系统、ROS 2 版本、架构及依赖进行适配。
 
-- 本仓库：[unitree-g1-fastlio-PC2](https://github.com/ZhenyuYangK/unitree-g1-fastlio-PC2)。
-- 功能对齐来源：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，本轮固定到 `afaf7bc5daefc98cfa045c0b50d05e17b7ac2053`（2026-10-20）。
-- [进度核对与分阶段迁移](docs/PC2_MIGRATION_PLAN.md) · [代码结构与整理规则](docs/CODE_STRUCTURE.md)。
+- PC2 版本（本仓库）：[unitree-g1-fastlio-PC2](https://github.com/ZhenyuYangK/unitree-g1-fastlio-PC2)，面向 Ubuntu 20.04 / ROS 2 Foxy / aarch64。
+- 本项目的 Ubuntu 22.04 x86_64 版本：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，使用 ROS 2 Humble；在该平台运行时请使用此版本。
 
-**P0 已完成；P1–P4 源码迁移及各阶段本机检查完成；P4 速度反馈、Foxy Nav2 配置和运行联锁已通过本机编译及隔离测试；PC2 编译与现场检查待执行；P5–P7 待实施。** 保留已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md) 、[P2](docs/migration/P2_ACCEPTANCE.md) 、[P3](docs/migration/P3_ACCEPTANCE.md) 和 [P4 验收记录](docs/migration/P4_ACCEPTANCE.md)。
+
+**P0 已完成；P1–P5 源码迁移及各阶段本机检查完成；P5 任务接口、双语讲解、人工放行和巡航整合已通过本机编译及隔离测试；PC2 编译与现场检查待执行；P6–P7 待实施。** 保留已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md) 、[P2](docs/migration/P2_ACCEPTANCE.md) 、[P3](docs/migration/P3_ACCEPTANCE.md) 、[P4](docs/migration/P4_ACCEPTANCE.md) 和 [P5 验收记录](docs/migration/P5_ACCEPTANCE.md)。
 
 ## 平台与验证范围
 
@@ -14,20 +14,21 @@
 | --- | --- |
 | 本次检查主机 | Ubuntu 22.04 / Humble / x86_64 / Python 3.10；用于源码迁移、本机编译及隔离合成测试 |
 | PC2 适配目标 | 按现有源码维护 Ubuntu 20.04 / ROS 2 Foxy / aarch64 / Python 3.8；上机时核实实际系统和依赖版本 |
-| 功能参考版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
+| Ubuntu 22.04 x86_64 版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
 
-对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2/P3 定位与全局匹配测试及 P4 FAST-LIO/速度桥/导航转换器编译和隔离测试已通过；Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
+两个平台版本按同一项目的功能和接口进行同步，PC2 版本保留 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2/P3 定位与全局匹配测试、P4 FAST-LIO/速度桥/导航转换器及 P5 接口/语音桥编译和隔离测试已通过；Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
 
 ## 当前能力
 
-| 模块 | 本地已有 | 待从 Ubuntu 版迁移 |
+| 模块 | PC2 版本当前实现 | 待同步与验证 |
 | --- | --- | --- |
 | 建图 | MID360、FAST-LIO、PCD 保存和二维地图转换；P1 已统一环境、进程归属和保存确认 | PC2 上机检查；后续整体验收 |
 | 定位 | 无先验全局 XY/yaw 搜索、多候选三帧验证、有限重试和诊断；保留人工/固定初值与实时失效联锁 | PC2 多位置/朝向实测及性能验收 |
 | 导航 | 机体系速度与协方差、`/Odometry_nav`、Foxy Nav2、统一低速/目标档、实际后端和运行参数核验；定位失效关门 | PC2 速度符号、低速导航及性能实测 |
-| 航点与任务 | 新鲜定位录点、任务校验、顺序导航、取消和恢复标记 | 单点任务结果持久化、双语讲解、人工放行、状态服务 |
-| 巡航 | 多圈、暂停、继续和停止；通过共用任务客户端检查新定位状态 | 后续任务与网页整合，保留 PC2 既有巡航能力 |
-| 语音与网页 | 有厂商语音头文件；没有业务语音包和网页目录 | `g1_audio_bridge`、网页建图/导航/编辑、多设备操作权 |
+| 航点与任务 | 新鲜定位录点、严格任务校验、双语讲解、末站人工放行、状态服务、单点/Action 结果持久化、取消和恢复标记 | PC2 讲解及任务现场检查 |
+| 巡航 | 多圈/循环、途中暂停和恢复、剩余停留；业务包实现，共用任务锁/恢复标记及定位状态检查 | P6 网页整合与 PC2 现场回归 |
+| 语音 | 可取消的 Speak Action、真实/模拟模式、默认保留音量、进程归属管理 | PC2 发声与 PlayStop 效果确认 |
+| 网页 | 尚无网页目录 | P6 网页建图/导航/编辑、多设备操作权 |
 
 `start-auto` / `start-auto-dry` 现为无先验全局定位；旧固定坐标功能使用 `start-fixed` / `start-fixed-dry`，仍读取 `script/auto_start_pose.env`。手动入口 `start` / `start-dry` 保留。
 
@@ -47,8 +48,9 @@ Git 仓库根目录就是包含 `src/`、`script/`、`maps/` 的工作空间。�
 │   ├── g1_relocalization/      # 全局匹配、候选验证与 NDT 跟踪
 │   ├── g1_nav2_bringup/        # Foxy Nav2 配置与启动
 │   ├── g1_loco_bridge/         # 速度门控与 Unitree 后端
-│   ├── g1_task_interfaces/     # 当前 ExecuteMission Action
-│   ├── g1_task_manager/        # 航点与多点任务
+│   ├── g1_task_interfaces/     # ExecuteMission/Speak 与状态/放行服务
+│   ├── g1_audio_bridge/        # 可取消语音 Action 与 Unitree AudioClient
+│   ├── g1_task_manager/        # 航点、任务、双语讲解与巡航
 │   ├── g1_unitree_ros2_probe/  # Unitree 诊断工具
 │   └── unitree_ros2_interfaces/
 ├── maps/                         # 现场地图、转换工具
@@ -58,7 +60,7 @@ Git 仓库根目录就是包含 `src/`、`script/`、`maps/` 的工作空间。�
 └── build/ install/ log/ runtime/ # 本地生成内容，不进入 Git
 ```
 
-P1 已增加 `g1_env.sh`、`local.env.example`、构建/自检、雷达配置、进程归属和地图保存辅助工具；`g1_audio_bridge/`、`web_console/` 仍属后续交付。结构规划见 [CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)。
+P1 已增加 `g1_env.sh`、`local.env.example`、构建/自检、雷达配置、进程归属和地图保存辅助工具；P5 已增加 `g1_audio_bridge/`、任务放行/状态接口，并将巡航 Python 移入业务包；`web_console/` 属于 P6。结构规划见 [CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)。
 
 ## 获取与上机准备
 
@@ -148,9 +150,9 @@ FAST-LIO `/Odometry` 的 twist 属于 `body`，Nav2 统一使用旋转后的 `/O
 
 真机桥入口为 `script/g1_navigation_real.sh`，`start` 和 `enable` 都核对本工作空间进程、Nav2 active、新鲜定位/TF、速度反馈、已加载参数及实际 `unitree_ros2` 后端；启动后仍需显式 `enable`。导航真机与 Dry Run 配置均启用定位联锁：状态接收/发布时间超过 1 秒、成功扫描超过 3 秒或状态无效时关门并清空速度。恢复定位后必须重新 enable 并发送新的 Twist。
 
-## 原项目图片
+## 项目运行展示
 
-保留 PC2 远端原 README 的三张图片，作为历史运行展示；图片不代表本轮迁移验收。
+以下三张图片展示本项目 PC2 版本的历史运行情况；图片不代表本轮平台适配验收。
 
 建图运行：
 
@@ -187,11 +189,37 @@ colcon test-result --test-result-base build_pc2 --verbose
 
 地图地面模型、雷达高度、倒装方向及搜索范围须按现场核实。`global_matcher_check --map ...` 只检查地图索引；加独立扫描可检查搜索，仍须通过实时新帧确认。P3 本机证据与 PC2 检查点见 [P3_ACCEPTANCE.md](docs/migration/P3_ACCEPTANCE.md)。
 
+## P5 讲解、人工放行与任务结果
+
+P5 配套升级了任务接口、语音桥和任务执行器。旧无语音任务保持定时自动推进，新任务支持
+`zh/en/both`、`speaker_id`、`wait_sec`、失败终止和 `auto/manual` 推进；末站人工等待也需放行。
+真实任务先核验真实语音桥，讲解/等待时关门，取消先完成运动收尾。`g1_navigation_real.sh start`
+管理真实语音进程，默认 `G1_AUDIO_VOLUME=-1` 保留当前音量；外部语音实例由原启动者停止。
+
+```bash
+# 离线校验旧任务；tour 替换为已配置的任务 ID
+bash script/g1_waypoints.sh missions
+bash script/g1_waypoints.sh mission tour --check-only
+# 加载 PC2 环境后模拟任务，保留人工等待服务
+bash script/g1_waypoints.sh mission tour --simulate --time-scale 0.01
+# 同一工作空间/ROS Domain 的另一终端：
+bash script/g1_waypoints.sh status
+bash script/g1_waypoints.sh continue
+```
+
+放行标识绑定当前运行及站点；巡航的途中 `pause/resume` 继续独立保留，不能用任务 `continue`
+替代。任务/巡航共用锁和停止未确认恢复标记，真实任务报告及 Action UUID 结果保存于
+`runtime/missions/`。接口增加了字段，PC2 须用全新构建和安装目录一起重建三个配套包及客户端。
+
+配置、执行与恢复方法见 [任务包说明](src/g1_task_manager/README.md)；本机证据、PC2 待验收项和
+回退见 [P5_ACCEPTANCE.md](docs/migration/P5_ACCEPTANCE.md)。本机模拟通过不代表机器人播放完成，
+声音与 PlayStop 效果仍待上机确认。
+
 ## 迁移顺序
 
 P0 基线与结构整理 → P1 PC2 环境和路径 → P2 新鲜定位状态与联锁 → P3 全局自动定位 → P4 速度反馈与 Nav2 → P5 语音和任务 → P6 网页控制 → P7 PC2 整体验收。
 
-每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1–P4 已完成源码与各阶段本机检查；参考仓库或本机通过的检查不代表 PC2 已通过。
+每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1–P5 已完成源码与各阶段本机检查；Ubuntu 22.04 x86_64 版本或本机通过的检查不代表 PC2 已通过。
 
 ## 许可证
 

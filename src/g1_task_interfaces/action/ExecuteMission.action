@@ -15,3 +15,7 @@ uint32 total_steps
 # -1 means distance is not available yet.
 float64 distance_remaining
 string message
+string run_id
+string wait_id
+string next_waypoint
+bool simulated

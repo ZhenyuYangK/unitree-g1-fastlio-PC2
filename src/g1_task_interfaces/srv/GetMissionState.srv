@@ -1,0 +1,14 @@
+---
+bool active
+bool simulated
+string run_id
+string mission_id
+string mission_name
+string state
+uint32 current_step
+uint32 total_steps
+string current_waypoint
+string next_waypoint
+# Only populated during the current, unconsumed manual wait.
+string wait_id
+string message
