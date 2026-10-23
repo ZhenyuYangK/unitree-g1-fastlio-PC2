@@ -8,12 +8,13 @@ from launch_ros.actions import Node
 
 
 def generate_launch_description():
-    params_file = os.path.join(
+    default_params_file = os.path.join(
         get_package_share_directory("g1_nav2_bringup"),
         "config",
         "nav2_params.yaml",
     )
 
+    params_file = LaunchConfiguration("params_file")
     use_sim_time = LaunchConfiguration("use_sim_time")
 
     nav2_nodes = [
@@ -24,6 +25,12 @@ def generate_launch_description():
     ]
 
     return LaunchDescription([
+        DeclareLaunchArgument(
+            "params_file",
+            default_value=default_params_file,
+            description="Full path to the Nav2 parameters file",
+        ),
+
         DeclareLaunchArgument(
             "use_sim_time",
             default_value="false",

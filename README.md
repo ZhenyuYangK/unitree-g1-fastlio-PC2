@@ -1,225 +1,148 @@
-# 基于宇树G1EDU+ 29DO迎宾讲解项目(包含 建图、手动导航、语音交互导航和定点语音讲解）
+# Unitree G1 EDU+ 29DOF · PC2 建图、导航与讲解
 
-Unitree G1 的 ROS 2 建图与导航迎宾讲解项目。当前仓库版本为 **v8.7**，包含 Livox 驱动、FAST-LIO、NDT 重定位、Nav2 规划、安全速度桥、地图和运行脚本。
+面向 **G1 EDU+ 29DOF 的 PC2** 维护的原生 ROS 2 项目，包含 MID360、FAST-LIO、NDT 重定位、Nav2、速度安全桥、航点管理和多点任务。
 
+- 本仓库：[unitree-g1-fastlio-PC2](https://github.com/ZhenyuYangK/unitree-g1-fastlio-PC2)。
+- 功能对齐来源：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，本轮固定到 `afaf7bc5daefc98cfa045c0b50d05e17b7ac2053`（2026-10-20）。
+- [进度核对与分阶段迁移](docs/PC2_MIGRATION_PLAN.md) · [代码结构与整理规则](docs/CODE_STRUCTURE.md)。
 
-> 安全提示：真实机器人运动存在碰撞和人身伤害风险。请先完成仿真或 Dry Run 验证，并确保遥控器、急停和安全人员到位。`g1_navigation.sh` 不会直接启用真实运动；真实桥还需要单独运行 `g1_navigation_real.sh` 并显式执行 `enable`。
+**P0 基线冻结与结构整理已完成，P1–P7 待实施。** 本地源码已有航点、多点任务与暂停巡航，不能按远端旧 README 的 v8.7 描述判断本地进度。本轮整理日期为 2026-10-23。P0 的快照、缺失文件说明与校验结果见 [P0 验收记录](docs/migration/P0_ACCEPTANCE.md)。
 
-## 目录结构
+## 平台与验证范围
+
+| 用途 | 平台 |
+| --- | --- |
+| 本次检查主机 | 用户提供的 Ubuntu 22.04 主机；用于源码核对和文档整理 |
+| PC2 适配目标 | 按现有源码维护 Ubuntu 20.04 / ROS 2 Foxy / aarch64 / Python 3.8；上机时核实实际系统和依赖版本 |
+| 功能参考版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
+
+对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配，不直接替换成电脑的 Humble 环境或预编译文件。本轮未运行编译、ROS 节点或真机控制，后续由操作者在 PC2 编译验收。
+
+## 当前能力
+
+| 模块 | 本地已有 | 待从 Ubuntu 版迁移 |
+| --- | --- | --- |
+| 建图 | MID360、FAST-LIO、PCD 保存和二维地图转换 | 统一环境、进程归属检查、保存结果确认 |
+| 定位 | 人工初始位姿 + NDT；固定起点入口 | 时间同步、新鲜状态、无先验全局定位、多候选确认和诊断 |
+| 导航 | Foxy Nav2、`/cmd_vel_nav`、Dry Run 与真机桥 | 定位失效联锁、机体系速度反馈、`/Odometry_nav`、统一速度参数 |
+| 航点与任务 | 录点、任务校验、顺序导航、取消和恢复标记 | 单点任务结果持久化、双语讲解、人工放行、状态服务 |
+| 巡航 | `g1_cruise.sh` 的多圈、暂停、继续和停止 | 接入新定位状态，保留 PC2 既有巡航能力 |
+| 语音与网页 | 有厂商语音头文件；没有业务语音包和网页目录 | `g1_audio_bridge`、网页建图/导航/编辑、多设备操作权 |
+
+当前 `start-auto` 仍是读取固定起点文件的旧入口，**不代表已实现无先验全局定位**。新命令语义将在迁移 P3 中处理。
+
+## 代码目录
+
+Git 仓库根目录就是包含 `src/`、`script/`、`maps/` 的工作空间。本次本地路径为 `g1_slam_ws_source/g1_slam_ws/`。
 
 ```text
 .
-├── maps/                         # PCD 地图、Nav2 栅格地图和转换脚本
-├── script/                       # 建图、导航和真实桥管理脚本
+├── README.md
+├── docs/                         # 进度、迁移方案和结构说明
+├── script/                       # 现有建图、导航、航点与巡航入口
 ├── src/
-│   ├── FAST_LIO_ROS2/            # FAST-LIO ROS 2
-│   ├── Livox-SDK2/               # Livox SDK 2 源码
-│   ├── livox_ros_driver2/         # Livox ROS 2 驱动
-│   ├── g1_relocalization/         # NDT 重定位
-│   ├── g1_nav2_bringup/           # Nav2 规划启动与配置
-│   ├── g1_loco_bridge/            # G1 速度命令安全桥
-│   ├── g1_unitree_ros2_probe/     # Unitree ROS 2 探测工具
-│   └── unitree_ros2_interfaces/   # Unitree ROS 2 消息接口
-├── third_party/                   # Unitree SDK、头文件、预编译库及许可证
-└── g1_cmd_vel_dry_run.yaml        # Dry Run 示例参数
+│   ├── FAST_LIO_ROS2/            # 建图与里程计
+│   ├── Livox-SDK2/              # 雷达 SDK 源码
+│   ├── livox_ros_driver2/       # ROS 2 驱动
+│   ├── g1_relocalization/      # NDT 定位
+│   ├── g1_nav2_bringup/        # Foxy Nav2 配置与启动
+│   ├── g1_loco_bridge/         # 速度门控与 Unitree 后端
+│   ├── g1_task_interfaces/     # 当前 ExecuteMission Action
+│   ├── g1_task_manager/        # 航点与多点任务
+│   ├── g1_unitree_ros2_probe/  # Unitree 诊断工具
+│   └── unitree_ros2_interfaces/
+├── maps/                         # 现场地图、转换工具
+├── task_data/                    # 现场航点和任务；新增内容不进入 Git
+├── third_party/                  # 厂商头文件、库及许可证
+├── backup/                       # 本地备份；已归档未被引用的历史副本
+└── build/ install/ log/ runtime/ # 本地生成内容，不进入 Git
 ```
 
-当前地图：
+`g1_audio_bridge/`、`web_console/` 和统一环境脚本属于后续迁移交付，当前尚不存在。结构规划和各模块职责见 [CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)。
 
-- `maps/map.pcd`：重定位使用的点云地图。
-- `maps/map_multilayer.pgm` 与 `maps/map_multilayer.yaml`：Nav2 栅格地图。
-- `maps/pcd2pgm_multilayer.py`：PCD 到栅格地图的转换脚本。
-
-本次源包中没有独立的 `waypoints/` 或 `task_data/` 航点文件。
-
-## 运行环境
-
-该版本按以下环境组织：
-
-- Ubuntu 20.04
-- ROS 2 Foxy
-- `colcon` 与 `rosdep`
-- PCL、Eigen、Nav2
-- Livox MID360
-- 真实 G1 控制需要单独配置 Unitree ROS 2/CycloneDDS 环境
-
-仓库包含第三方源码与部分厂商预编译库，支持 `x86_64` 和 `aarch64`。两个 Unitree 静态库以压缩包保存，恢复脚本会在编译前解压并校验；不依赖 Git LFS。请根据实际主机架构、ROS 2 安装和设备网络配置进行验证。
-
-## 获取与编译
+## 获取与上机准备
 
 ```bash
-git clone https://github.com/ZhenyuYangK/unitree-g1-fastlio.git
-cd unitree-g1-fastlio
-./script/restore_vendor_libraries.sh
-
-source /opt/ros/foxy/setup.bash
-rosdep install --from-paths src --ignore-src -r -y
-colcon build --symlink-install
-source install/setup.bash
-```
-
-管理脚本会优先从脚本所在位置自动识别工作空间。可用环境变量覆盖外部环境路径：
-
-```bash
+git clone https://github.com/ZhenyuYangK/unitree-g1-fastlio-PC2.git
+cd unitree-g1-fastlio-PC2
 export G1_WS="$PWD"
-export PCL_SETUP="$HOME/ws_pcl_ros/install/setup.bash"       # 可选，自定义 PCL underlay
-export UNITREE_ROS2_SETUP=/path/to/cyclonedds_ws/install/setup.bash
 ```
 
-`UNITREE_ROS2_SETUP` 在仅建图或规划/Dry Run 时可以不设置；使用真实 G1 控制桥前必须正确设置并验证。
+本轮修改保存在本地，尚未提交或推送；上述 clone 获取的是远端当前版本。
 
-## 建图
+P0 已保存本地源码、现场数据及历史归档快照，位置为 `backup/p0_20261023/`；基线与差异证据位于 `docs/migration/`。按项目设置，`docs/`、`doc/` 不跟踪，文档与核对证据只保存在本地，clone 不包含这些记录。在当前工作空间执行以下只读校验，不需要 ROS 环境：
 
 ```bash
-./script/g1_mapping.sh start
-./script/g1_mapping.sh status
-./script/g1_mapping.sh save
-./script/g1_mapping.sh finish
+python3 script/g1_verify_p0.py --local
 ```
-常用辅助命令：
+
+省略 `--local` 仅校验源码和本地核对证据。后续阶段修改源码后，P0 校验报告差异属于预期；保留 P0 快照并为新阶段单独记录验收。
+
+当前本地启动脚本和 CMake 仍有旧机器的 `/home/g1test/...` 路径。迁移 P1 会统一环境加载和路径配置；在 P1 完成前，换路径部署需要逐项核对。不要把当前检查主机已有的 Humble 环境当作 PC2 的运行环境。
+
+上机前准备同一区域的三维地图、PGM 和地图 YAML，以及匹配 `map_id` 的航点与任务。默认文件为：
+
+- `maps/map.pcd`、`maps/map_multilayer.pgm`、`maps/map_multilayer.yaml`；
+- `task_data/maps/laboratory_map_v1/waypoints.yaml`；
+- `task_data/missions/missions.yaml`。
+
+地图、航点和任务需要单独备份、部署；`.gitignore` 不会自动取消远端已跟踪地图的跟踪。厂商库只使用对应架构版本，既有 `build/`、`install/` 含原机路径，不可直接作为新路径的部署结果。
+
+## 现有运行入口
+
+以下命令说明当前源码入口，在目标 PC2 环境、路径及依赖准备完成后使用。编译与分阶段验收要求见迁移方案。
 
 ```bash
-./script/g1_mapping.sh logs
-./script/g1_mapping.sh map-path
-./script/g1_mapping.sh stop
+# 建图：启动、保存、保存后结束
+bash script/g1_mapping.sh start
+bash script/g1_mapping.sh save
+bash script/g1_mapping.sh finish
+
+# 地图转换：先查看工具参数，按实际地图设置地面、边界和障碍高度
+python3 maps/pcd2pgm_multilayer.py --help
+
+# 人工定位与规划；在 RViz 中给定初始位置和朝向
+bash script/g1_navigation.sh start
+bash script/g1_navigation.sh continue
+
+# Dry Run 导航桥
+bash script/g1_navigation.sh start-dry
+bash script/g1_navigation.sh continue-dry
+
+# 航点和任务离线查看
+bash script/g1_waypoints.sh list
+bash script/g1_waypoints.sh missions
+
+# PC2 已有巡航路线预览
+bash script/g1_cruise.sh plan
 ```
 
-建图脚本会在 `runtime/mapping/` 生成日志、PID、会话信息和临时配置；
+巡航的多圈、暂停和停止说明保留在 [g1_cruise_README.md](script/g1_cruise_README.md)。其中原机器的安装路径和历史验证记录仅供追溯，不代表本轮已复验。
 
-运行截图：
+真机桥入口为 `script/g1_navigation_real.sh`，`start` 后仍需显式 `enable`。定位失效自动关门等新版能力尚待迁移；现有入口的就绪检查不能等同于新版实时定位联锁。
+
+## 原项目图片
+
+保留 PC2 远端原 README 的三张图片，作为历史运行展示；图片不代表本轮迁移验收。
+
+建图运行：
+
 <img width="2468" height="1322" alt="截图 2026-09-20 15-37-42" src="https://github.com/user-attachments/assets/7c641cc5-257c-4467-8006-543a2e9ebd2a" />
-大范围建图PCD地图(map文件夹下TB4.pcd)示例：
+
+大范围点云地图：
+
 <img width="1320" height="910" alt="截图 2026-09-23 20-26-41" src="https://github.com/user-attachments/assets/b920b017-1370-4dbe-a483-06c6b594d13e" />
 
+导航运行：
 
-## 地图转换
-
-FAST-LIO 建图保存的是三维点云地图（`.pcd`），而 Nav2的代价地图只接受二维栅格地图（`.pgm` 图片 + `.yaml`描述文件）
-
-此转换脚本做的事是：**估计地面平面 → 按离地高度保留障碍层（去掉地面和天花板）→ 投影到 XY 平面 → 半径滤波去噪 → 栅格化输出 PGM + YAML**
-
-PS：本脚在室内实验室环境下验证可行，室外环境或者3D导航等需要另外自行更改脚本
-
-基本使用方法：
-```bash
-  cd <maps文件夹所在地址>
-  python3 pcd2pgm_multilayer.py <输入.pcd> --output-prefix <输出前缀>
-```
-### 参数介绍
-
-  | 参数 | 默认值 | 说明 |
-  |---|---|---|
-  | `input_pcd`（位置参数） | — | 输入点云，仅支持 `DATA binary` 格式 |
-  | `--output-prefix` | `map_multilayer` | 输出文件名前缀 |
-  | `--plane-a` / `--plane-b` / `--plane-c` | -0.06203 / -0.02687 / -1.51000 |
-  地面平面 z = a·x + b·y + c；**默认值按 map.pcd 拟合，换地图必须重设** |
-  | `--xmin` `--xmax` `--ymin` `--ymax` | -6.5 / 23.5 / -20.0 / 28.5 |
-  地图边界（米）；**默认值按 map.pcd 设定，换地图必须重设** |
-  | `--resolution` | 0.05 | 栅格分辨率（米/格）；大范围地图建议 0.1 |
-  | `--layers` | `0.20:0.50,0.45:0.80,0.75:1.10,1.05:1.40,1.35:1.75` |
-  相对地面的高度层；低于 0.20 m 视为地面、高于 1.75 m 视为天花板，均不参与投影 |
-  | `--radius` | 0.15 | 半径滤波半径（米），孤立噪点在此半径内邻居不足而被剔除 |
-  | `--min-neighbors` | 2 | 半径内最少邻居点数（含自身） |
-  | `--min-layers` | 1 | 至少多少个高度层同时出现才判为障碍 |
-  | `--close-radius` | 1 | 闭运算半径（格），填补墙线小缺口 |
-  | `--dilate-radius` | 1 | 膨胀半径（格），让墙线更连续 |
-
-### 接入 Nav2
-
-`script/g1_navigation.sh` 默认加载 
-`maps/map_multilayer.pgm|yaml`，
-两种方式切换：
-```bash
-# 方式一：直接用默认文件名生成，零配置
-python3 pcd2pgm_multilayer.py TB4.pcd --output-prefix map_multilayer ...
-
-# 方式二：保留自定义前缀，启动前用环境变量覆盖
-export G1_MAP_PGM="$PWD/maps/TB4.pgm" G1_MAP_YAML="$PWD/maps/TB4.yaml"
-./script/g1_navigation.sh start
-```
-
-
-## 定位与 Nav2
-
-`g1_navigation.sh` 支持规划模式和 Dry Run 安全桥，不直接开放真实运动入口：
-
-```bash
-./script/g1_navigation.sh start
-./script/g1_navigation.sh continue
-
-# 或启动 Dry Run
-./script/g1_navigation.sh start-dry
-./script/g1_navigation.sh continue-dry
-
-./script/g1_navigation.sh status
-./script/g1_navigation.sh logs
-./script/g1_navigation.sh stop
-```
-关键接口：
-
-- 全局坐标系：`map`
-- 里程计坐标系：`camera_init`
-- FAST-LIO 机体坐标系：`body`
-- 导航底盘坐标系：`nav_base`
-- 里程计话题：`/Odometry`
-- 局部障碍点云：`/cloud_registered_body`
-- 隔离速度输出：`/cmd_vel_nav`
-
-## 真实 G1 控制桥
-
-只有在完成 Dry Run、现场安全检查和 Unitree ROS 2 环境配置后，才运行：
-
-```bash
-export UNITREE_ROS2_SETUP=/path/to/cyclonedds_ws/install/setup.bash
-
-./script/g1_navigation_real.sh start
-./script/g1_navigation_real.sh enable
-./script/g1_navigation_real.sh disable
-./script/g1_navigation_real.sh stop
-```
-
-`start` 仅启动真实桥并保持安全门关闭；`enable` 才允许 Nav2 命令进入真实机器人后端。
-
-运行截图：
 <img width="1562" height="857" alt="截图 2026-09-20 15-25-19" src="https://github.com/user-attachments/assets/4dba04f2-d4e9-4c2f-b56a-b40f8c8f0dfa" />
 
-## 配置说明
+## 迁移顺序
 
-- MID360/FAST-LIO：`src/FAST_LIO_ROS2/config/mid360.yaml`
-- NDT 重定位：`src/g1_relocalization/config/relocalization.yaml`
-- Nav2：`src/g1_nav2_bringup/config/nav2_params.yaml`
-- Dry Run 与真实桥：`src/g1_loco_bridge/config/`
+P0 基线与结构整理 → P1 PC2 环境和路径 → P2 新鲜定位状态与联锁 → P3 全局自动定位 → P4 速度反馈与 Nav2 → P5 语音和任务 → P6 网页控制 → P7 PC2 整体验收。
 
-地图路径在仓库配置中留空，由管理脚本在启动时注入当前工作空间内的地图绝对路径。若绕过管理脚本直接启动节点，请显式传入 `map_file_path` 或 `map_path`。
-
-## 仓库清理说明
-
-此快照已移除可重新生成或仅与原机器有关的内容，包括：
-
-- ROS 2/colcon 的 `build/`、`install/`、`log/`
-- `runtime/` 日志、PID 和临时配置
-- 嵌套仓库的 `.git/` 历史
-- Python 缓存、IDE 配置、编辑器临时文件
-- 本地备份目录及 `.bak`、`.before` 等历史副本
-- 两个仅用于上游文档展示、且不参与编译或运行的大型 FAST-LIO GIF（单个约 50 MB/34 MB）
+每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P0 之外均为待迁移，不能把参考仓库通过的检查记为 PC2 已通过。
 
 ## 许可证
 
-第三方组件继续使用各自目录中的许可证文件；例如 FAST-LIO、Livox-SDK2、livox_ros_driver2、Unitree SDK2、CycloneDDS、iceoryx 和 RapidJSON。请在复制、发布或商用前分别核对这些条款。
-
-仓库根目录目前没有为自研部分单独声明统一许可证，因此未明确授权的自研代码默认不应视为开源许可授予。
-
-## 已知限制
-
-- 这是从已运行工作空间整理出的 v8.7 源码快照，不包含编译产物。
-- 本次整理环境不是 Ubuntu/ROS 2 主机，未在此环境重新编译或连接实机验收。
-- 真实导航必须在目标机器人、雷达、DDS 网络和安全条件齐备后重新验证。
-## 正在解决
-- 避障优化
-- 导航点的记录
-- 开机自动定位
-- 路径规划优化
-- 语音语义识别
-- 用户交互页面
-- 具体导航点任务编辑与实现
-- 导航点语音任务调度
+第三方组件遵循各自目录中的许可证。各业务包的 `package.xml` 也有各自声明；发布和分发时逐项核对，根目录目前未补充统一许可证。

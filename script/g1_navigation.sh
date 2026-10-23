@@ -21,11 +21,17 @@ set -Eeuo pipefail
 #   ./g1_navigation.sh stop|restart|status|logs
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-WS="${G1_WS:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+DEFAULT_WS="/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws"
 
-ROS_SETUP="${ROS_SETUP:-/opt/ros/foxy/setup.bash}"
-PCL_SETUP="${PCL_SETUP:-${HOME}/ws_pcl_ros/install/setup.bash}"
-UNITREE_ROS2_SETUP="${UNITREE_ROS2_SETUP:-}"
+if [[ -d "${SCRIPT_DIR}/../src/FAST_LIO_ROS2" ]]; then
+  WS="$(cd "${SCRIPT_DIR}/.." && pwd)"
+else
+  WS="${G1_WS:-${DEFAULT_WS}}"
+fi
+
+ROS_SETUP="/opt/ros/foxy/setup.bash"
+PCL_SETUP="/home/g1test/ws_pcl_ros/install/setup.bash"
+UNITREE_ROS2_SETUP="/home/g1test/Desktop/irongroup/yzy/unitree_ros2/cyclonedds_ws/install/local_setup.bash"
 WS_SETUP="${WS}/install/setup.bash"
 
 MAP_PCD="${G1_MAP_PCD:-${WS}/maps/map.pcd}"
@@ -74,6 +80,17 @@ source_environment() {
   }
   # shellcheck disable=SC1090
   source "${WS_SETUP}"
+  # G1_RMW_RELEASE_PAIR_BEGIN
+  if [[ "${G1_RMW_RELEASE_TEST:-0}" == "1" ]]; then
+    local rmw_prefix="/home/g1test/g1_rmw_release_test/install"
+    local dds_lib="/home/g1test/cyclonedds_ws/install/cyclonedds/lib"
+    [[ -r "${rmw_prefix}/local_setup.bash" ]] || die "Missing RMW test setup"
+    [[ -r "${dds_lib}/libddsc.so.0" ]] || die "Missing test DDS library"
+    source "${rmw_prefix}/local_setup.bash" || die "Failed to load RMW test setup"
+    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    export LD_LIBRARY_PATH="${rmw_prefix}/rmw_cyclonedds_cpp/lib:${dds_lib}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+  fi
+  # G1_RMW_RELEASE_PAIR_END
   set -u
 
   if [[ -d "${WS}/install/livox_sdk2/lib" ]]; then
@@ -286,16 +303,16 @@ nav_values = {
     "max_vel_theta": "0.40",
     "min_speed_xy": "0.0",
     "max_speed_xy": "0.50",
-    "min_speed_theta": "0.0",
+    "min_speed_theta": "0.40",
     "acc_lim_x": "0.3",
     "acc_lim_y": "0.0",
-    "acc_lim_theta": "0.5",
+    "acc_lim_theta": "4.0",
     "decel_lim_x": "-0.3",
     "decel_lim_y": "0.0",
-    "decel_lim_theta": "-0.5",
+    "decel_lim_theta": "-4.0",
     "vx_samples": "5",
     "vy_samples": "1",
-    "vtheta_samples": "9",
+    "vtheta_samples": "3",
 }
 
 found = {key: 0 for key in nav_values}

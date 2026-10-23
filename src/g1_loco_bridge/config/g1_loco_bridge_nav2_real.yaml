@@ -20,5 +20,5 @@ g1_cmd_vel_dry_run:
     angular_deadband: 0.02
     max_linear_accel: 0.2
     max_linear_decel: 0.4
-    max_angular_accel: 0.4
-    max_angular_decel: 0.8
+    max_angular_accel: 8.0
+    max_angular_decel: 8.0

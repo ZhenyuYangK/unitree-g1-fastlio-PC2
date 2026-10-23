@@ -14,10 +14,16 @@ set -Eeuo pipefail
 #   ./g1_mapping.sh map-path    显示本次建图输出路径
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-WS="${G1_WS:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+DEFAULT_WS="/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws"
 
-ROS_SETUP="${ROS_SETUP:-/opt/ros/foxy/setup.bash}"
-PCL_SETUP="${PCL_SETUP:-${HOME}/ws_pcl_ros/install/setup.bash}"
+if [[ -d "${SCRIPT_DIR}/../src/FAST_LIO_ROS2" ]]; then
+  WS="$(cd "${SCRIPT_DIR}/.." && pwd)"
+else
+  WS="${G1_WS:-${DEFAULT_WS}}"
+fi
+
+ROS_SETUP="/opt/ros/foxy/setup.bash"
+PCL_SETUP="/home/g1test/ws_pcl_ros/install/setup.bash"
 WS_SETUP="${WS}/install/setup.bash"
 
 SOURCE_CFG="${WS}/src/FAST_LIO_ROS2/config/mid360.yaml"

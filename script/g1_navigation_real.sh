@@ -1,11 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-WS="${G1_WS:-$(cd "${SCRIPT_DIR}/.." && pwd)}"
+WS=/home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws
 
-ROS_SETUP="${ROS_SETUP:-/opt/ros/foxy/setup.bash}"
-UNITREE_SETUP="${UNITREE_ROS2_SETUP:-}"
+ROS_SETUP=/opt/ros/foxy/setup.bash
+UNITREE_SETUP=/home/g1test/Desktop/irongroup/yzy/unitree_ros2/cyclonedds_ws/install/local_setup.bash
 WS_SETUP="$WS/install/setup.bash"
 
 CFG="$WS/src/g1_loco_bridge/config/g1_loco_bridge_nav2_real.yaml"
@@ -19,14 +18,22 @@ mkdir -p "$LOG_DIR"
 
 load_env()
 {
-    [[ -f "$ROS_SETUP" ]] || { echo "[ERROR] 找不到 ROS 环境：$ROS_SETUP"; exit 1; }
-    [[ -f "$UNITREE_SETUP" ]] || { echo "[ERROR] 请设置 UNITREE_ROS2_SETUP"; exit 1; }
-    [[ -f "$WS_SETUP" ]] || { echo "[ERROR] 找不到工作空间环境：$WS_SETUP"; exit 1; }
-
     set +u
     source "$ROS_SETUP"
     source "$UNITREE_SETUP"
     source "$WS_SETUP"
+    g1_rmw_env_fail() { printf "[ERROR] %s\n" "$*" >&2; exit 1; }
+  # G1_RMW_RELEASE_PAIR_BEGIN
+  if [[ "${G1_RMW_RELEASE_TEST:-0}" == "1" ]]; then
+    local rmw_prefix="/home/g1test/g1_rmw_release_test/install"
+    local dds_lib="/home/g1test/cyclonedds_ws/install/cyclonedds/lib"
+    [[ -r "${rmw_prefix}/local_setup.bash" ]] || g1_rmw_env_fail "Missing RMW test setup"
+    [[ -r "${dds_lib}/libddsc.so.0" ]] || g1_rmw_env_fail "Missing test DDS library"
+    source "${rmw_prefix}/local_setup.bash" || g1_rmw_env_fail "Failed to load RMW test setup"
+    export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+    export LD_LIBRARY_PATH="${rmw_prefix}/rmw_cyclonedds_cpp/lib:${dds_lib}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
+  fi
+  # G1_RMW_RELEASE_PAIR_END
     set -u
 }
 

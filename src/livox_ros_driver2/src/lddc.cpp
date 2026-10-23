@@ -1,3 +1,6 @@
+#include <cstdio>
+#include <algorithm>
+#include <chrono>
 //
 // The MIT License (MIT)
 //
@@ -215,18 +218,53 @@ void Lddc::PublishPointcloud2(LidarDataQueue *queue, uint8_t index) {
 }
 
 void Lddc::PublishCustomPointcloud(LidarDataQueue *queue, uint8_t index) {
+  using Clock = std::chrono::steady_clock;
+  static auto last_report = Clock::now();
+  static double max_publish_ms = 0.0;
+  static uint32_t max_queued_frames = 0;
+
   while(!QueueIsEmpty(queue)) {
+    const uint32_t queued_frames = QueueUsedSize(queue);
+    max_queued_frames = std::max(max_queued_frames, queued_frames);
+    const auto prepare_start = Clock::now();
+
     StoragePacket pkg;
-    QueuePop(queue, &pkg);
+    if (!QueuePop(queue, &pkg)) {
+      break;
+    }
     if (pkg.points.empty()) {
-      printf("Publish custom point cloud failed, the pkg points is empty.\n");
       continue;
     }
 
     CustomMsg livox_msg;
     InitCustomMsg(livox_msg, pkg, index);
     FillPointsToCustomMsg(livox_msg, pkg);
+    const auto publish_start = Clock::now();
+    const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::system_clock::now().time_since_epoch()).count();
+    const double input_age_ms =
+        (static_cast<double>(now_ns) - static_cast<double>(pkg.base_time)) / 1e6;
+
     PublishCustomPointData(livox_msg, index);
+    const auto publish_end = Clock::now();
+
+    const double publish_ms =
+        std::chrono::duration<double, std::milli>(
+            publish_end - publish_start).count();
+    const double prepare_ms =
+        std::chrono::duration<double, std::milli>(
+            publish_start - prepare_start).count();
+    max_publish_ms = std::max(max_publish_ms, publish_ms);
+
+    if (publish_end - last_report >= std::chrono::seconds(1)) {
+      std::fprintf(stderr,
+          "[G1-LIVOX] queue_max=%u input_age_ms=%.1f prepare_ms=%.1f publish_max_ms=%.1f\n",
+          static_cast<unsigned>(max_queued_frames), input_age_ms,
+          prepare_ms, max_publish_ms);
+      last_report = publish_end;
+      max_publish_ms = 0.0;
+      max_queued_frames = 0;
+    }
   }
 }
 
@@ -533,7 +571,7 @@ std::shared_ptr<rclcpp::PublisherBase> Lddc::CreatePublisher(uint8_t msg_type,
     } else if (kLivoxCustomMsg == msg_type) {
       DRIVER_INFO(*cur_node_,
           "%s publish use livox custom format", topic_name.c_str());
-      return cur_node_->create_publisher<CustomMsg>(topic_name, queue_size);
+      return cur_node_->create_publisher<CustomMsg>(topic_name, rclcpp::QoS(rclcpp::KeepLast(queue_size)).best_effort());
     }
 #if 0
     else if (kPclPxyziMsg == msg_type)  {

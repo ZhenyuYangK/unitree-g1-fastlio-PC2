@@ -18,7 +18,7 @@ find_package(unitree_api REQUIRED)
 
 set(
   UNITREE_ROS2_EXAMPLE_INCLUDE
-  ${CMAKE_CURRENT_SOURCE_DIR}/../../third_party/unitree_ros2_example_include
+  /home/g1test/Desktop/irongroup/yzy/g1_slam_ws_source/g1_slam_ws/third_party/unitree_ros2_example_include
 )
 
 add_executable(

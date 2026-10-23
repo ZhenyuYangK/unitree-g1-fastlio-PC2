@@ -1,0 +1,9 @@
+g1_task_manager:
+  ros__parameters:
+    execute_real: false
+    gate_service: /g1_loco_bridge/enable_real_nav
+    max_tf_age_sec: 0.5
+    max_fitness: 2.0
+    max_fitness_age_sec: 5.0
+# Paths default to G1_WAYPOINTS_FILE/G1_MISSIONS_FILE, or G1_WS/WS.
+# These parameters are read at startup; restart the node to apply changes.

@@ -1,0 +1,17 @@
+# PREVIEW/EXECUTE is a server-side setting; clients cannot enable motion.
+string mission_id
+---
+bool success
+string state
+string message
+bool gate_closed
+bool goals_terminal
+string report_path
+---
+string state
+string current_waypoint
+uint32 current_step
+uint32 total_steps
+# -1 means distance is not available yet.
+float64 distance_remaining
+string message

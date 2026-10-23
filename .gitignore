@@ -1,25 +1,18 @@
-# ROS 2 / colcon / CMake
-build/
-install/
-log/
-runtime/
+# ROS / colcon generated files (keep local PC2 artifacts on disk)
+/build/
+/install/
+/log/
+/runtime/
+/backup/
+/docs/
+/doc/
 .colcon/
 CMakeCache.txt
 CMakeFiles/
 cmake_install.cmake
 compile_commands.json
 
-# Runtime recordings and crash dumps
-*.bag
-*.db3
-*.mcap
-*.log
-*.pid
-*.pids
-core
-core.*
-
-# Python
+# Python and editor caches
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -29,20 +22,39 @@ __pycache__/
 .cache/
 .venv/
 venv/
+.idea/
+.vscode/
+.DS_Store
+*~
+*.swp
+*.swo
 
-# Local configuration and credentials
+# Host configuration and recordings
 .env
 .env.*
 !.env.example
+/script/local.env
+/script/auto_start_pose.env
 *.pem
 *.key
-*.p12
-*.pfx
 credentials.*
 secrets.*
+*.bag
+*.db3
+*.mcap
+*.log
+*.pid
+*.pids
+core
+core.*
 
-# Local backup and editor files
-backup/
+# Site data: existing tracked maps are not removed by these rules
+/maps/*.pcd
+/maps/*.pgm
+/maps/*.yaml
+/task_data/
+
+# Historical copies and nested repository metadata
 *.bak
 *.bak_*
 *.before
@@ -50,30 +62,10 @@ backup/
 *.orig
 *.rej
 *.save
-*.swp
-*.swo
-*~
-
-# IDE / OS
-.idea/
-.vscode/
-.vs/
-.clangd/
-.DS_Store
-Thumbs.db
-
-# Nested repository metadata
 .git/
 
-# Oversized upstream documentation demos (not used at build/runtime)
-src/FAST_LIO_ROS2/doc/real_experiment2.gif
-src/FAST_LIO_ROS2/doc/ulhkwh_fastlio.gif
-
-# Restored locally from the tracked compressed vendor archives
-third_party/unitree_sdk2_native/lib/aarch64/libunitree_sdk2.a
-third_party/unitree_sdk2_native/lib/x86_64/libunitree_sdk2.a
-
-# Generated map files
-maps/*.pcd
-maps/*.pgm
-maps/*.yaml
+# Vendor libraries restored from the upstream compressed archives
+/third_party/unitree_sdk2_native/lib/aarch64/libunitree_sdk2.a
+/third_party/unitree_sdk2_native/lib/x86_64/libunitree_sdk2.a
+/src/FAST_LIO_ROS2/doc/real_experiment2.gif
+/src/FAST_LIO_ROS2/doc/ulhkwh_fastlio.gif

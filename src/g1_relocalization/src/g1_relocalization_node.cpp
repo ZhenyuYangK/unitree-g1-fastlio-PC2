@@ -55,21 +55,33 @@ public:
 
     loadGlobalMap();
 
+    // Receive fresh sensor data while NDT runs in the default group.
+    input_callback_group_ = create_callback_group(
+      rclcpp::CallbackGroupType::MutuallyExclusive);
+
+    rclcpp::SubscriptionOptions input_options;
+    input_options.callback_group = input_callback_group_;
+
+    auto input_qos = rclcpp::SensorDataQoS();
+    input_qos.keep_last(1);
+
     cloud_sub_ = create_subscription<sensor_msgs::msg::PointCloud2>(
       input_cloud_topic_,
-      rclcpp::SensorDataQoS(),
+      input_qos,
       std::bind(
         &G1RelocalizationNode::cloudCallback,
         this,
-        std::placeholders::_1));
+        std::placeholders::_1),
+      input_options);
 
     odom_sub_ = create_subscription<nav_msgs::msg::Odometry>(
       odometry_topic_,
-      rclcpp::SensorDataQoS(),
+      input_qos,
       std::bind(
         &G1RelocalizationNode::odomCallback,
         this,
-        std::placeholders::_1));
+        std::placeholders::_1),
+      input_options);
 
     initial_pose_sub_ =
       create_subscription<geometry_msgs::msg::PoseWithCovarianceStamped>(
@@ -342,6 +354,10 @@ private:
       }
     }
 
+    const double diagnostic_scan_age =
+      now().seconds() - rclcpp::Time(scan_stamp).seconds();
+    const auto diagnostic_start = std::chrono::steady_clock::now();
+
     ndt_.setInputSource(scan);
 
     PointCloudT aligned_cloud;
@@ -355,6 +371,21 @@ private:
     }
 
     const double fitness = ndt_.getFitnessScore();
+
+    const double diagnostic_match_ms =
+      std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - diagnostic_start).count();
+
+    RCLCPP_INFO(
+      get_logger(),
+      "[NDT_DIAG] scan=%d.%09u age_at_start=%.3fs "
+      "match_ms=%.1f points=%zu fitness=%.6f",
+      static_cast<int>(scan_stamp.sec),
+      static_cast<unsigned int>(scan_stamp.nanosec),
+      diagnostic_scan_age,
+      diagnostic_match_ms,
+      scan->size(),
+      fitness);
 
     std_msgs::msg::Float64 fitness_msg;
     fitness_msg.data = fitness;
@@ -600,6 +631,7 @@ private:
   std::unique_ptr<tf2_ros::TransformBroadcaster>
     tf_broadcaster_;
 
+  rclcpp::CallbackGroup::SharedPtr input_callback_group_;
   rclcpp::CallbackGroup::SharedPtr tf_callback_group_;
 
   rclcpp::TimerBase::SharedPtr timer_;
