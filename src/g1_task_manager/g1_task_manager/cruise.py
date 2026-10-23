@@ -11,6 +11,7 @@ import socket
 import sys
 import threading
 import time
+import uuid
 from datetime import datetime
 
 from .paths import workspace
@@ -73,7 +74,7 @@ class Control:
     def __init__(self, plan):
         self.lock = threading.RLock()
         self.desired = 'run'
-        self.state = dict(state='STARTING', pid=os.getpid(), route=[s['waypoint'] for s in plan['route']],
+        self.state = dict(state='STARTING', run_id=uuid.uuid4().hex, pid=os.getpid(), route=[s['waypoint'] for s in plan['route']],
                           laps=plan['laps'], lap=1, step=1, current_waypoint='',
                           completed_visits=0, gate_closed=False, goals_terminal=False,
                           errors=[], dwell_remaining=0.)
@@ -91,8 +92,10 @@ class Control:
         with self.lock:
             return self.desired
 
-    def request(self, command):
+    def request(self, command, expected_run_id=None):
         with self.lock:
+            if expected_run_id is not None and expected_run_id != self.state['run_id']:
+                return dict(ok=False, message='巡航运行标识已过期', **self.snapshot())
             state = self.state['state']
             ok = True
             message = '已收到请求；以最终状态为准'
@@ -125,12 +128,18 @@ class Control:
             with conn:
                 conn.settimeout(1.)
                 try:
-                    data = conn.recv(64).decode('ascii').strip()
+                    data = conn.recv(512).decode('ascii').strip()
+                    expected_run_id = None
+                    if data.startswith('{'):
+                        payload = json.loads(data)
+                        data, expected_run_id = payload['command'], payload['run_id']
+                        if not isinstance(expected_run_id, str) or not expected_run_id:
+                            raise ValueError('无效巡航运行标识')
                     if data not in ('pause', 'resume', 'stop', 'status'):
                         raise ValueError('未知指令')
-                    reply = self.request(data)
+                    reply = self.request(data, expected_run_id)
                     conn.sendall((json.dumps(reply, ensure_ascii=False) + '\n').encode())
-                except (OSError, ValueError):
+                except (OSError, ValueError, KeyError, TypeError):
                     continue
 
 

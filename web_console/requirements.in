@@ -1,0 +1,7 @@
+# PC2 CPython 3.8. Resolve on Linux/aarch64; exact transitive versions live in requirements.txt.
+fastapi>=0.115,<0.116
+pydantic>=2.10,<2.11
+uvicorn>=0.30,<0.34
+websockets>=13,<14
+PyYAML>=6,<7
+Pillow>=10.4,<11

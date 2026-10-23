@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eef1f5">
+  <title>G1 · 机器人控制台</title>
+  <script src="/theme.js"></script>
+  <link rel="preload" href="/fonts/Barlow-Regular.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="preload" href="/fonts/BarlowCondensed-Bold.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="/styles.css">
+  <script src="/geometry.js" defer></script>
+  <script src="/editor.js" defer></script>
+  <script src="/mapping.js" defer></script>
+  <script src="/navigation.js" defer></script>
+  <script src="/cruise.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <aside class="sidebar">
+    <a class="brand" href="/" aria-label="G1 机器人控制台首页"><span class="brand-mark">G1</span><span>机器人控制台<small>Robot console</small></span></a>
+    <div class="sidebar-label">工作空间</div>
+    <nav aria-label="主导航">
+      <button class="nav-item active" data-view="overview" aria-current="page"><span aria-hidden="true">01</span>运行总览</button>
+      <button class="nav-item" data-view="waypoints"><span aria-hidden="true">02</span>导航点</button>
+      <button class="nav-item" data-view="missions"><span aria-hidden="true">03</span>巡航任务</button>
+      <button class="nav-item" data-view="mapping"><span aria-hidden="true">04</span>建图管理</button>
+      <button class="nav-item" data-view="integration"><span aria-hidden="true">05</span>系统接入</button>
+    </nav>
+    <div class="sidebar-footer">G1 / MID360<small>机器人工作空间</small><span class="sidebar-direction" aria-hidden="true">↗</span></div>
+  </aside>
+  <main>
+    <header class="topbar">
+      <div><div class="eyebrow">G1 <span>/</span> 工作空间</div><h1 id="pageTitle">运行总览</h1></div>
+      <div class="top-actions"><span id="connection" class="connection">连接中</span><button id="themeButton" class="button theme-button" aria-pressed="false">切换到深色</button><button id="controlButton" class="button secondary" disabled>取得控制权</button></div>
+    </header>
+    <div class="mode-notice" id="modeBanner"><span class="mode-tag">连接中</span><span id="modeText">正在同步后端地图与配置…</span><span id="controlTime" class="control-time">操作剩余时间：待同步</span></div>
+    <div class="data-toolbar"><span id="dataSyncStatus">正在读取配置…</span><button id="refreshDataButton" class="button secondary compact">重新同步</button></div>
+    <section class="sign-banner" id="signBanner" aria-label="巡航导视">
+      <div id="bannerStopMarker" class="banner-marker" aria-hidden="true"><span class="stop-marker stop-marker-large"><span>01</span></span></div>
+      <div class="sign-copy"><div class="sign-kicker"><span id="signKicker">首站</span><span class="sign-status" id="signStatus">准备开始</span></div><h2 id="signStopName">选择巡航路线</h2><p id="signDetail">查看路线，然后开始巡航。</p></div>
+      <div class="sign-next"><span class="direction-arrow" aria-hidden="true">↗</span><div><span id="nextStopLabel">下一步</span><strong id="signNextStop">取得控制权</strong></div></div>
+    </section>
+    <div class="metrics">
+      <article class="metric"><span>定位状态</span><strong id="localizationValue">等待数据</strong><small id="localizationDetail">—</small></article>
+      <article class="metric"><span>当前任务</span><strong id="missionValue">等待数据</strong><small id="missionDetail">—</small></article>
+      <article class="metric"><span>站点进度</span><strong id="stepValue">— <em>/ —</em></strong><small id="stepDetail">—</small></article>
+      <article class="metric"><span id="controlMetricLabel">编辑设备</span><strong id="controlValue">—</strong><small id="controlDetail">查看状态无需取得控制权</small></article>
+    </div>
+    <section data-page="overview">
+      <div class="workspace-grid">
+        <article class="panel map-panel">
+          <div class="panel-heading"><div><h2>地图与位置</h2><p id="mapCaption">正在读取本地地图…</p></div><span class="pill" id="mapMode">加载中</span></div>
+          <div class="map-tools"><button id="mapZoomIn" class="button secondary compact" aria-label="放大地图">＋</button><button id="mapZoomOut" class="button secondary compact" aria-label="缩小地图">−</button><button id="mapFit" class="button secondary compact">显示全图</button><button id="mapFollow" class="button secondary compact" aria-pressed="false" disabled>跟随机器人</button><button id="mapNewPoint" class="button secondary compact data-edit" disabled>在地图上新增</button></div>
+          <div id="mapPickHint" class="map-pick-hint" hidden>点击地图选择位置，然后填写站点信息。<button id="cancelMapPick" class="button secondary compact">取消选点</button></div>
+          <div id="navigationPickHint" class="map-pick-hint" hidden>按住地图选择位置，拖动箭头设置朝向，松开后预览。<button id="cancelNavigationPick" class="button secondary compact">取消设置</button></div>
+          <div class="map-wrap" id="mapWrap">
+            <svg id="map" viewBox="0 0 860 570" role="img" aria-label="模拟实验室地图、导航点与机器人位置">
+              <g id="demoMapLayer" hidden><rect class="map-ground" width="860" height="570"/>
+              <g class="map-rooms"><path d="M100 70H300V235H100Z"/><path d="M300 70H560V235H300Z"/><path d="M560 70H760V500H560Z"/><path d="M100 350H300V500H100Z"/><path d="M300 350H560V500H300Z"/></g>
+              <path class="map-wall" d="M100 70H760V500H100ZM100 235H165M255 235H360M690 235H760M300 70V120M300 200V350M300 450V500M560 70V220M560 370V500M100 350H165M255 350H400M640 350H760"/>
+              <g class="map-labels"><text x="148" y="463">接待区</text><text x="347" y="463">研究展示区</text><text x="623" y="329">设备实验区</text><text x="350" y="110">交流区</text><text x="146" y="110">参观终点</text></g></g>
+              <image id="liveMapImage" x="0" y="0" hidden/>
+              <polyline id="routeLine" class="map-route"/>
+              <polyline id="planLine" class="map-plan" hidden/>
+              <g id="waypointLayer"></g>
+              <g id="targetMarker" class="navigation-target" hidden><circle r="17"/><path d="M0 0H42M31-9 42 0 31 9"/></g>
+              <g id="initialPoseMarker" class="initial-pose-marker" hidden><circle r="15"/><path d="M0 0H48M35-10 48 0 35 10"/></g>
+              <g id="robotMarker"><circle class="robot-range" r="35"/><circle class="robot-body" r="30"/><path class="robot-heading" d="M32-6 44 0 32 6Z"/></g>
+              <g id="demoMapScale" hidden><text class="map-caption" x="32" y="544">示意地图 · 非现场地图</text>
+              <path class="map-scale" d="M700 532H810M700 528V536M810 528V536"/><text class="map-caption" x="742" y="551">2 m</text></g>
+            </svg>
+            <div id="mapEmpty" class="map-empty">正在加载后端地图…</div>
+          </div>
+          <div class="map-footer"><span><i class="legend-dot robot"></i>机器人</span><span><i class="legend-dot route"></i>站点顺序（虚线）</span><span id="pathStatus">规划路径未接入</span><span id="poseValue">位置 —</span></div>
+        </article>
+        <article class="panel mission-panel">
+          <div class="panel-heading"><div><h2>巡航控制</h2><p>导航 · 双语讲解 · 人工放行</p></div><span class="pill" id="missionPhase">待命</span></div>
+          <label class="field-label" for="missionSelect">选择任务</label>
+          <select id="missionSelect" disabled><option value="">正在加载任务…</option></select>
+          <div class="route-summary"><span id="routeSummary">—</span><span id="advanceSummary">按任务配置推进</span></div>
+          <button id="editSelectedMission" class="button secondary compact data-edit" disabled>编辑当前路线和讲解</button>
+          <div class="mission-progress"><div class="progress-top"><span id="progressTitle">等待开始</span><span id="progressCount">0 / 0</span></div><div class="progress-track" role="progressbar" aria-label="站点进度" aria-valuemin="0" aria-valuemax="5" aria-valuenow="0"><div id="progressBar"></div></div><p id="progressMessage">取得控制权后，可以开始模拟巡航。</p></div>
+          <div class="mission-actions"><button id="startButton" class="button primary" disabled>开始模拟巡航 <span aria-hidden="true">↗</span></button><button id="continueButton" class="button primary" disabled>继续下一站 <span aria-hidden="true">→</span></button><button id="cancelButton" class="button secondary" disabled>取消当前任务</button></div>
+          <div class="run-meta"><span>本次运行</span><span id="runId">—</span></div>
+          <a id="taskReport" class="button secondary compact task-report" hidden>下载任务报告</a>
+          <p class="control-note" id="controlNote">操作请求被接受后，以后台反馈为准。</p>
+          <div class="single-navigation"><h3>单点导航</h3><label class="field-label" for="targetWaypoint">目标导航点</label><select id="targetWaypoint" disabled><option value="">请选择导航点</option></select><p id="targetDetail" class="control-note">选择后在地图预览位置和朝向。</p><button id="goToButton" class="button secondary" disabled>前往该点 →</button><p id="navigationBlocker" class="control-note" role="status">等待导航状态</p><p id="stopConfirmation" class="control-note" role="status"></p></div>
+        </article>
+      </div>
+      <div class="secondary-grid">
+        <article class="panel stops-panel"><div class="panel-heading"><div><h2>巡航站点</h2><p>按路线顺序查看下一站</p></div><span class="pill" id="stopListCount">—</span></div><ol id="stopList" class="stop-list" aria-label="当前巡航站点"></ol></article>
+        <article class="panel log-panel"><div class="panel-heading"><div><h2>运行记录</h2><p>当前会话的最近事件</p></div><span class="pill">实时</span></div><div id="logList" class="logs" aria-live="polite"><p>等待后台事件…</p></div></article>
+      </div>
+    </section>
+    <section data-page="waypoints" hidden>
+      <article class="panel"><div class="panel-heading"><div><h2>导航点目录</h2><p id="waypointCaption">坐标系 map · yaw 单位为弧度</p></div><button id="newWaypointButton" class="button secondary data-edit" disabled>新增导航点</button></div><div class="table-wrap"><table><thead><tr><th>站点</th><th>名称</th><th>X / m</th><th>Y / m</th><th>朝向 / rad</th><th>操作</th></tr></thead><tbody id="waypointTable"></tbody></table></div></article>
+    </section>
+    <section data-page="missions" hidden>
+      <article class="panel" id="cruisePanel">
+        <div class="panel-heading"><div><h2>连续巡航 · PC2</h2><p>按导航点多圈或循环运行，途中暂停后可恢复。讲解与人工放行使用运行总览的任务控制。</p></div><span class="pill" id="cruisePhase">未运行</span></div>
+        <form id="cruiseForm"><div class="form-grid">
+          <label>导航点顺序（逗号分隔，留空使用当前任务路线）<input id="cruisePoints" maxlength="16000" placeholder="point_01, point_02"></label>
+          <label>圈数<input id="cruiseLaps" type="number" min="1" max="10000" step="1" value="1" required></label>
+          <label>单点超时 / 秒<input id="cruiseTimeout" type="number" min="1" max="3600" value="60" required></label>
+          <label>到站停留 / 秒<input id="cruiseDwell" type="number" min="0" max="3600" value="2" required></label>
+          <label class="cruise-loop"><input id="cruiseLoop" type="checkbox"> 持续循环，直到停止</label>
+        </div><p id="cruiseRoute" class="control-note"></p><div class="mission-actions"><button class="button primary" id="cruiseStart" type="submit" disabled>开始连续巡航</button><button class="button secondary" id="cruisePause" type="button" disabled>途中暂停</button><button class="button secondary" id="cruiseResume" type="button" disabled>恢复巡航</button><button class="button secondary" id="cruiseStop" type="button" disabled>停止巡航</button></div></form>
+        <p class="control-note" id="cruiseStatus" role="status">连续巡航控制需要 ros_control 模式。</p>
+      </article>
+      <article class="panel"><div class="panel-heading"><div><h2>巡航任务目录</h2><p>编辑路线和讲解，保存到后端任务文件</p></div><button id="newMissionButton" class="button secondary data-edit" disabled>新建任务</button></div><div id="missionCatalog" class="mission-catalog"></div></article>
+    </section>
+    <section data-page="mapping" hidden>
+      <div class="mapping-grid">
+        <article class="panel">
+          <div class="panel-heading"><div><h2>采集环境</h2><p>启动雷达与建图，用遥控器带机器人走遍环境</p></div><span id="mappingPhase" class="pill">等待状态</span></div>
+          <div class="mapping-controls">
+            <label for="mappingName">地图名称<input id="mappingName" maxlength="48" pattern="[a-zA-Z0-9_一-鿿-]*" placeholder="例如：实验室东区"></label>
+            <p class="muted">新地图单独保存，保留当前导航地图。建图与定位导航互斥。</p>
+            <div class="mapping-actions"><button id="mappingStart" class="button primary" disabled>开始建图 ↗</button><button id="mappingSave" class="button secondary" disabled>保存地图</button><button id="mappingFinish" class="button primary" disabled>保存并结束建图</button><button id="mappingStop" class="button secondary" disabled>停止建图</button></div>
+            <p id="mappingAccessNote" class="mapping-alert">取得操作权后管理建图。</p>
+            <p class="muted">“保存地图”后继续采集；“停止建图”不主动请求保存。机器人行走仍由遥控器控制。</p>
+          </div>
+          <div class="mapping-result"><span>最近操作</span><strong id="mappingOperation">暂无操作</strong><p id="mappingOperationMessage">等待后端状态</p><span id="mappingOperationTime" class="muted"></span></div>
+          <div class="mapping-result"><span>PCD 成果</span><strong id="mappingOutputName">尚未创建会话</strong><p id="mappingOutputDetail">保存后可以下载点云地图。</p><a id="mappingDownload" class="button secondary" hidden>下载 PCD 地图</a></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading"><div><h2>点云俯视预览</h2><p>采集到的点云 XY 投影，坐标系独立于导航地图</p></div><span id="mappingPreviewStatus" class="pill">等待点云</span></div>
+          <div class="mapping-preview"><canvas id="mappingCanvas" role="img" aria-label="建图点云俯视投影"></canvas><p id="mappingPreviewEmpty">启动建图并接入 ROS 后显示实时点云</p></div>
+          <div class="map-footer"><span id="mappingPreviewMeta">尚未接收点云</span><span>PCD 点云投影</span></div>
+          <div class="mapping-processes" id="mappingProcesses"></div>
+        </article>
+      </div>
+      <article class="panel mapping-log-panel"><div class="panel-heading"><div><h2>建图日志</h2><p>操作结果、雷达与 FAST-LIO 的最近输出</p></div><button id="mappingRefreshLogs" class="button secondary compact">刷新日志</button></div><div id="mappingLogs" class="mapping-logs" aria-live="off"><p>暂无建图日志</p></div></article>
+    </section>
+    <section data-page="integration" hidden>
+      <article class="panel navigation-panel">
+        <div class="panel-heading"><div><h2>定位与导航</h2><p>先完成定位与 Nav2，再准备执行桥和任务服务。</p></div><span id="navigationPhase" class="pill">等待状态</span></div>
+        <div class="navigation-body">
+          <ol id="navigationChecks" class="navigation-checks" aria-label="导航就绪状态"></ol>
+          <div class="navigation-actions"><button id="navigationStart" class="button primary" disabled>自动定位并启动导航</button><button id="navigationManual" class="button secondary" disabled>启动人工定位</button><button id="navigationInitial" class="button secondary" disabled>设置初始位姿</button><button id="navigationContinue" class="button secondary" disabled>定位后继续启动 Nav2</button><button id="navigationPrepare" class="button secondary" disabled>准备运动与语音桥</button><button id="navigationStop" class="button secondary" disabled>结束导航</button></div>
+          <p id="navigationNote" class="control-note">等待后端连接</p>
+          <div class="mapping-result"><span>最近操作</span><strong id="navigationOperation">暂无操作</strong><p id="navigationOperationMessage">等待定位与导航操作</p></div>
+          <div id="navigationProcesses" class="mapping-processes"></div>
+          <div class="panel-heading"><div><h3>导航日志</h3><p>定位、规划、运动桥和任务执行器的最近输出</p></div><button id="navigationRefreshLogs" class="button secondary compact">刷新日志</button></div><div id="navigationLogs" class="mapping-logs"><p>暂无日志</p></div>
+        </div>
+      </article>
+      <article class="panel"><div class="panel-heading"><div><h2>系统接入</h2><p>查看各项功能的接入状态</p></div><span class="pill">接入状态</span></div><div class="integration-grid">
+        <article><span class="integration-number">01</span><h3>建图管理</h3><p>采集环境、保存地图、结束建图，查看处理进度。</p><button class="button secondary" data-view="mapping">打开建图管理</button></article>
+        <article><span class="integration-number">02</span><h3>导航执行</h3><p>在运行总览选择目标或巡航任务，查看实时位置与规划路径。</p><button class="button secondary" data-view="overview">打开导航控制台</button></article>
+        <article><span class="integration-number">03</span><h3>导航点与讲解</h3><p>导航点坐标、路线顺序和讲解内容已与后端配置文件同步。</p><button id="openConfiguration" class="button secondary">查看并编辑配置</button></article>
+        <article><span class="integration-number">04</span><h3>遥控与视频</h3><p>通过网页遥控机器人、查看摄像头画面，具体范围待确认。</p><button class="button secondary" disabled>等待需求确认</button></article>
+      </div></article>
+    </section>
+    <footer class="page-footer"><span>G1 Robot console <span class="muted">/</span> 开发预览</span><span id="snapshotTime">等待状态快照</span></footer>
+  </main>
+  <dialog id="loginDialog"><form id="loginForm"><span class="eyebrow">G1 Robot console</span><h2>连接机器人工作空间</h2><p>输入网关访问口令。</p><label class="field-label" for="tokenInput">访问口令</label><input id="tokenInput" type="password" required autocomplete="current-password" maxlength="1024"><p id="loginError" class="form-error" role="alert"></p><button class="button primary" type="submit">连接控制台 →</button></form></dialog>
+  <dialog id="initialPoseDialog" class="editor-dialog"><form id="initialPoseForm"><div class="editor-heading"><h2>设置初始位姿</h2><button type="button" id="closeInitialPose" class="button secondary compact">关闭</button></div><p>填写机器人实际位置和朝向，或在地图拖动箭头。提交后等待定位确认。</p><div class="form-grid"><label>X / 米<input id="initialX" type="number" step="any" required></label><label>Y / 米<input id="initialY" type="number" step="any" required></label><label>朝向 / 度<input id="initialYaw" type="number" step="any" min="-180" max="180" required></label></div><p id="initialPoseError" class="editor-error" role="alert"></p><div class="editor-actions"><button id="pickInitialPose" type="button" class="button secondary">在地图上设置</button><button id="submitInitialPose" type="submit" class="button primary">提交初始位姿</button></div></form></dialog>
+  <dialog id="navigationConfirm" class="editor-dialog"><form id="navigationConfirmForm"><h2>确认单点导航</h2><p id="navigationConfirmDetail"></p><p>到点后结束本次导航，过程中可取消任务。</p><p id="navigationConfirmError" class="editor-error" role="alert"></p><div class="editor-actions"><button id="closeNavigationConfirm" type="button" class="button secondary">返回</button><button id="confirmGoTo" type="submit" class="button primary">开始导航 →</button></div></form></dialog>
+  <dialog id="waypointDialog" class="editor-dialog"><form id="waypointForm"><div class="editor-heading"><h2 id="waypointEditorTitle">编辑导航点</h2><button type="button" class="button secondary compact" data-close="waypointDialog">关闭</button></div><p>保存后写入后端导航点文件，并自动备份原配置。</p><div class="form-grid"><label>导航点 ID<input name="id" required pattern="[a-z][a-z0-9_]*" maxlength="80"></label><label>名称<input name="name" required maxlength="160"></label><label>X / 米<input name="x" type="number" step="any" required></label><label>Y / 米<input name="y" type="number" step="any" required></label><label>朝向 / 弧度<input name="yaw" type="number" step="any" required></label><button id="pickWaypointPosition" type="button" class="button secondary">在地图上选择坐标</button></div><p class="editor-error" id="waypointError" role="alert"></p><div class="editor-actions"><button id="deleteWaypointButton" type="button" class="button secondary data-edit">删除该导航点</button><button type="button" id="reloadWaypointButton" class="button secondary">重新载入后端</button><button id="saveWaypointButton" type="submit" class="button primary data-edit">保存到后端</button></div></form></dialog>
+  <dialog id="missionDialog" class="editor-dialog mission-editor"><form id="missionForm"><div class="editor-heading"><h2 id="missionEditorTitle">编辑巡航任务</h2><button type="button" class="button secondary compact" data-close="missionDialog">关闭</button></div><p>站点顺序、讲解语言和文本会保存到后端任务文件。</p><div class="form-grid"><label>任务 ID<input name="id" required pattern="[a-z][a-z0-9_]*" maxlength="80"></label><label>任务名称<input name="name" required maxlength="160"></label></div><div id="missionSteps"></div><button id="addMissionStep" type="button" class="button secondary">添加站点</button><p class="editor-error" id="missionError" role="alert"></p><div class="editor-actions"><button id="deleteMissionButton" type="button" class="button secondary data-edit">删除该任务</button><button id="reloadMissionButton" type="button" class="button secondary">重新载入后端</button><button id="saveMissionButton" type="submit" class="button primary data-edit">保存到后端</button></div></form></dialog>
+  <template id="missionStepTemplate"><fieldset class="step-editor"><div class="step-heading"><strong data-step-title></strong><div><button type="button" class="button secondary compact" data-step-action="up" aria-label="上移站点">↑</button><button type="button" class="button secondary compact" data-step-action="down" aria-label="下移站点">↓</button><button type="button" class="button secondary compact" data-step-action="remove">移除</button></div></div><div class="form-grid"><label>导航点<select data-field="waypoint"></select></label><label>推进方式<select data-field="advance_mode"><option value="manual">人工放行</option><option value="auto">自动前往下一站</option></select></label><label>导航超时 / 秒<input data-field="timeout_sec" type="number" min="0.1" step="any" value="180" required></label><label>额外停留 / 秒<input data-field="dwell_sec" type="number" min="0" step="any" value="0" required></label><label>讲解语言<select data-field="language"><option value="none">不播报</option><option value="zh">中文</option><option value="en">英文</option><option value="both">中文和英文</option></select></label></div><div data-speech="zh"><label>中文讲解<textarea data-field="zh_text" maxlength="20000" rows="3"></textarea></label><div class="form-grid"><label>中文等待 / 秒<input data-field="zh_wait" type="number" min="0.1" step="any" value="5"></label><label>中文发音人 ID<input data-field="zh_speaker" type="number" min="0" step="1" value="0"></label></div></div><div data-speech="en"><label>英文讲解<textarea data-field="en_text" maxlength="20000" rows="3"></textarea></label><div class="form-grid"><label>英文等待 / 秒<input data-field="en_wait" type="number" min="0.1" step="any" value="5"></label><label>英文发音人 ID<input data-field="en_speaker" type="number" min="0" step="1" value="1"></label></div></div></fieldset></template>
+  <div id="toast" role="status" class="toast" hidden></div>
+</body>
+</html>

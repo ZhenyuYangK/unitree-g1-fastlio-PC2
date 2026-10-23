@@ -74,4 +74,3 @@ def parse_localization_status(data):
     except (TypeError, ValueError):
         return None
     return status if isinstance(status, dict) else None
-

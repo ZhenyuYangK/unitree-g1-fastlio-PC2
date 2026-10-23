@@ -6,7 +6,7 @@
 - 本项目的 Ubuntu 22.04 x86_64 版本：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，使用 ROS 2 Humble；在该平台运行时请使用此版本。
 
 
-**P0 已完成；P1–P5 源码迁移及各阶段本机检查完成；P5 任务接口、双语讲解、人工放行和巡航整合已通过本机编译及隔离测试；PC2 编译与现场检查待执行；P6–P7 待实施。** 保留已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md) 、[P2](docs/migration/P2_ACCEPTANCE.md) 、[P3](docs/migration/P3_ACCEPTANCE.md) 、[P4](docs/migration/P4_ACCEPTANCE.md) 和 [P5 验收记录](docs/migration/P5_ACCEPTANCE.md)。
+**P0 已完成；P1–P6 源码迁移及各阶段本机检查完成；P6 网页已通过 Python 3.8、API、浏览器及隔离 ROS 检查；PC2 Foxy/aarch64 与硬件现场检查、P7 整体验收待执行。** 保留已有航点、多点任务与暂停巡航。更新日期：2026-10-23。阶段记录：[P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md)、[P2](docs/migration/P2_ACCEPTANCE.md)、[P3](docs/migration/P3_ACCEPTANCE.md)、[P4](docs/migration/P4_ACCEPTANCE.md)、[P5](docs/migration/P5_ACCEPTANCE.md)、[P6](docs/migration/P6_ACCEPTANCE.md)。
 
 ## 平台与验证范围
 
@@ -16,7 +16,7 @@
 | PC2 适配目标 | 按现有源码维护 Ubuntu 20.04 / ROS 2 Foxy / aarch64 / Python 3.8；上机时核实实际系统和依赖版本 |
 | Ubuntu 22.04 x86_64 版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
 
-两个平台版本按同一项目的功能和接口进行同步，PC2 版本保留 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2/P3 定位与全局匹配测试、P4 FAST-LIO/速度桥/导航转换器及 P5 接口/语音桥编译和隔离测试已通过；Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
+两个平台版本按同一项目的功能和接口进行同步，PC2 版本保留 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2/P3 定位与全局匹配测试、P4 FAST-LIO/速度桥/导航转换器及 P5 接口/语音桥编译和隔离测试已通过；P6 已在隔离 Python 3.8.20 实际运行测试，并核验 aarch64 安装包；其他阶段的 Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
 
 ## 当前能力
 
@@ -26,9 +26,9 @@
 | 定位 | 无先验全局 XY/yaw 搜索、多候选三帧验证、有限重试和诊断；保留人工/固定初值与实时失效联锁 | PC2 多位置/朝向实测及性能验收 |
 | 导航 | 机体系速度与协方差、`/Odometry_nav`、Foxy Nav2、统一低速/目标档、实际后端和运行参数核验；定位失效关门 | PC2 速度符号、低速导航及性能实测 |
 | 航点与任务 | 新鲜定位录点、严格任务校验、双语讲解、末站人工放行、状态服务、单点/Action 结果持久化、取消和恢复标记 | PC2 讲解及任务现场检查 |
-| 巡航 | 多圈/循环、途中暂停和恢复、剩余停留；业务包实现，共用任务锁/恢复标记及定位状态检查 | P6 网页整合与 PC2 现场回归 |
+| 巡航 | 多圈/循环、途中暂停和恢复、剩余停留；业务包实现，共用任务锁/恢复标记及定位状态检查 | 已接入网页；PC2 现场回归待执行 |
 | 语音 | 可取消的 Speak Action、真实/模拟模式、默认保留音量、进程归属管理 | PC2 发声与 PlayStop 效果确认 |
-| 网页 | 尚无网页目录 | P6 网页建图/导航/编辑、多设备操作权 |
+| 网页 | 本地原生控制台：地图/任务编辑、建图、定位/导航、讲解任务、连续巡航及手机操作权恢复 | PC2 双浏览器、负载与真实控制验收 |
 
 `start-auto` / `start-auto-dry` 现为无先验全局定位；旧固定坐标功能使用 `start-fixed` / `start-fixed-dry`，仍读取 `script/auto_start_pose.env`。手动入口 `start` / `start-dry` 保留。
 
@@ -53,6 +53,7 @@ Git 仓库根目录就是包含 `src/`、`script/`、`maps/` 的工作空间。�
 │   ├── g1_task_manager/        # 航点、任务、双语讲解与巡航
 │   ├── g1_unitree_ros2_probe/  # Unitree 诊断工具
 │   └── unitree_ros2_interfaces/
+├── web_console/                  # P6 网页、PC2 依赖锁、API/浏览器测试
 ├── maps/                         # 现场地图、转换工具
 ├── task_data/                    # 现场航点和任务；新增内容不进入 Git
 ├── third_party/                  # 厂商头文件、库及许可证
@@ -60,7 +61,7 @@ Git 仓库根目录就是包含 `src/`、`script/`、`maps/` 的工作空间。�
 └── build/ install/ log/ runtime/ # 本地生成内容，不进入 Git
 ```
 
-P1 已增加 `g1_env.sh`、`local.env.example`、构建/自检、雷达配置、进程归属和地图保存辅助工具；P5 已增加 `g1_audio_bridge/`、任务放行/状态接口，并将巡航 Python 移入业务包；`web_console/` 属于 P6。结构规划见 [CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)。
+P1 已增加 `g1_env.sh`、`local.env.example`、构建/自检、雷达配置、进程归属和地图保存辅助工具；P5 已增加 `g1_audio_bridge/`、任务放行/状态接口，并将巡航 Python 移入业务包；P6 已增加根目录 `web_console/` 和 PC2 运行入口。结构规划见 [CODE_STRUCTURE.md](docs/CODE_STRUCTURE.md)。
 
 ## 获取与上机准备
 
@@ -70,7 +71,7 @@ cd unitree-g1-fastlio-PC2
 export G1_WS="$PWD"
 ```
 
-本轮修改保存在本地，尚未提交或推送；上述 clone 获取的是远端当前版本。
+仓库按 P0–P6 分阶段维护；上述 clone 获取远端 main，具体更新以提交记录为准。
 
 P0 已保存本地源码、现场数据及历史归档快照，位置为 `backup/p0_20261023/`；基线与差异证据位于 `docs/migration/`。按项目设置，`docs/`、`doc/` 不跟踪，文档与核对证据只保存在本地，clone 不包含这些记录。在当前工作空间执行以下只读校验，不需要 ROS 环境：
 
@@ -215,11 +216,25 @@ bash script/g1_waypoints.sh continue
 回退见 [P5_ACCEPTANCE.md](docs/migration/P5_ACCEPTANCE.md)。本机模拟通过不代表机器人播放完成，
 声音与 PlayStop 效果仍待上机确认。
 
+## P6 网页控制台
+
+工作空间根目录即网页默认数据源。使用 PC2 系统 Python 创建环境：
+
+```bash
+/usr/bin/python3 -m venv --system-site-packages web_console/.venv
+web_console/.venv/bin/python -m pip install --require-hashes -r web_console/requirements.txt
+bash web_console/run.sh
+```
+
+默认 local 模式，访问 http://127.0.0.1:8080 。mock 模式独立演示；ros_readonly 显示 ROS 状态并支持配置编辑/建图管理；ros_control 显式启用导航准备、初始位姿、单点、讲解任务和连续巡航。ROS/局域网模式须设置 G1_WEB_TOKEN；所有模式共用 300 秒单设备操作权和版本冲突检查。
+
+网页连续巡航接入原有多圈/循环与途中 pause/resume，独立于任务到站 continue。源码、本机验证、目标机检查与回退见 [P6_ACCEPTANCE.md](docs/migration/P6_ACCEPTANCE.md)，安装和使用见 [网页 README](web_console/README.md)。
+
 ## 迁移顺序
 
 P0 基线与结构整理 → P1 PC2 环境和路径 → P2 新鲜定位状态与联锁 → P3 全局自动定位 → P4 速度反馈与 Nav2 → P5 语音和任务 → P6 网页控制 → P7 PC2 整体验收。
 
-每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1–P5 已完成源码与各阶段本机检查；Ubuntu 22.04 x86_64 版本或本机通过的检查不代表 PC2 已通过。
+每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1–P6 已完成源码与各阶段本机检查；Ubuntu 22.04 x86_64 版本或本机通过的检查不代表 PC2 已通过。
 
 ## 许可证
 
