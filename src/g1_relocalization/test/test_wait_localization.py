@@ -31,6 +31,15 @@ class WaitLocalizationTest(unittest.TestCase):
         status['last_success_stamp_ns'] = now - 4_000_000_000
         self.assertFalse(helper.assess_status(status, now)[0])
 
+    def test_progress_reports_window_average_without_affecting_readiness(self):
+        status = dict(state='VERIFYING_CANDIDATES', valid=False, stamp_ns=10_000_000_000,
+                      attempt=2, max_attempts=3,
+                      candidates=[dict(samples=3, coverage=.99, mean_coverage=.90)])
+        report = helper.progress_text(status, 'VERIFYING_CANDIDATES')
+        self.assertIn('2/3', report)
+        self.assertIn('90.0%', report)
+        self.assertFalse(helper.assess_status(status, 10_000_000_000)[0])
+
 
 if __name__ == '__main__':
     unittest.main()

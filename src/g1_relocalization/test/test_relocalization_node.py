@@ -176,6 +176,7 @@ class RelocalizationNodeTest(unittest.TestCase):
         write_pcd(map_path, points)
         parameters = {
             "map_path": str(map_path), "initialization_mode": mode,
+            "global_use_ground_plane": False, "diagnostics_directory": self.directory.name,
             "input_cloud_topic": "/relocalization_test/cloud",
             "odometry_topic": "/relocalization_test/odom",
             "initial_pose_topic": "/relocalization_test/initialpose",
@@ -388,7 +389,7 @@ class RelocalizationNodeTest(unittest.TestCase):
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                 text=True, timeout=10)
         self.assertNotEqual(result.returncode, 0, result.stdout)
-        self.assertIn("Cannot load map", result.stdout)
+        self.assertIn("Cannot load PCD map", result.stdout)
 
 
 if __name__ == "__main__":

@@ -46,6 +46,23 @@ def positive_seconds(value):
     return value
 
 
+def progress_text(status, reason):
+    """Show candidate progress without changing the shared readiness policy."""
+    if not isinstance(status, dict):
+        return reason
+    attempt, maximum = status.get('attempt'), status.get('max_attempts')
+    if type(attempt) is int and type(maximum) is int and attempt > 0 and maximum > 0:
+        reason += ' [采集轮次 {}/{}]'.format(attempt, maximum)
+    candidates = status.get('candidates')
+    if isinstance(candidates, list) and candidates and isinstance(candidates[0], dict):
+        primary = candidates[0]
+        coverage = primary.get('mean_coverage')
+        if type(coverage) in (int, float) and math.isfinite(coverage) and 0 <= coverage <= 1:
+            reason += ' [候选{}个，主候选{}帧，平均覆盖率{:.1%}]'.format(
+                len(candidates), primary.get('samples', 0), coverage)
+    return reason
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--timeout', type=positive_seconds)
@@ -107,9 +124,10 @@ def main(argv=None):
             if not last_reason:
                 print('[G1-LOCALIZATION] {}: 定位及新鲜度检查通过'.format(latest['state']), flush=True)
                 return 0
-            if last_reason != last_report:
-                print('[G1-LOCALIZATION] ' + last_reason, flush=True)
-                last_report = last_reason
+            report = progress_text(latest, last_reason)
+            if report != last_report:
+                print('[G1-LOCALIZATION] ' + report, flush=True)
+                last_report = report
             if received_age is not None and received_age <= 1. and terminal_failure(latest, now_ns):
                 return 1
         print('[ERROR] 等待定位超时：' + last_reason, file=sys.stderr)

@@ -12,8 +12,10 @@ set -Eeuo pipefail
 # 用法：
 #   ./g1_navigation.sh start             手动初始化，启动定位 + Nav2
 #   ./g1_navigation.sh start-dry         手动初始化，并启动 Dry Run 安全桥
-#   ./g1_navigation.sh start-auto        使用 auto_start_pose.env 自动初始化
-#   ./g1_navigation.sh start-auto-dry    自动初始化，并启动 Dry Run 安全桥
+#   ./g1_navigation.sh start-auto        无先验全局搜索，确认后启动 Nav2
+#   ./g1_navigation.sh start-auto-dry    全局定位，并启动 Dry Run 安全桥
+#   ./g1_navigation.sh start-fixed       使用 auto_start_pose.env 固定初值
+#   ./g1_navigation.sh start-fixed-dry   固定初值，并启动 Dry Run 安全桥
 #   ./g1_navigation.sh continue          定位已成功后继续启动 Nav2
 #   ./g1_navigation.sh continue-dry      定位已成功后继续启动 Nav2 + Dry Run
 #   ./g1_navigation.sh enable-dry
@@ -34,6 +36,7 @@ NAV2_SOURCE_PARAMS="${WS}/src/g1_nav2_bringup/config/nav2_params.yaml"
 NAV_RVIZ="${WS}/src/g1_nav2_bringup/rviz/navigation.rviz"
 DRY_CFG="${WS}/src/g1_loco_bridge/config/g1_loco_bridge_nav2_dry_run.yaml"
 AUTO_POSE_FILE="${SCRIPT_DIR}/auto_start_pose.env"
+LOCALIZATION_TIMEOUT="${G1_LOCALIZATION_TIMEOUT_SEC:-180.0}"
 
 RUNTIME_DIR="${WS}/runtime/navigation"
 LOG_DIR="${RUNTIME_DIR}/logs"
@@ -259,8 +262,8 @@ activate_map_server() {
   ok "map_server 已激活"
 }
 
-publish_auto_pose() {
-  [[ -f "${AUTO_POSE_FILE}" ]] || die "找不到自动起点：${AUTO_POSE_FILE}"
+publish_fixed_pose() {
+  [[ -f "${AUTO_POSE_FILE}" ]] || die "找不到固定起点：${AUTO_POSE_FILE}"
   # shellcheck disable=SC1090
   source "${AUTO_POSE_FILE}"
 
@@ -294,6 +297,20 @@ wait_for_localization() {
 
 start_base_stack() {
   local init_mode="$1"
+  local localization_mode=manual
+  [[ "$init_mode" != auto ]] || localization_mode=global
+  LOCALIZATION_TIMEOUT="$(python3 - "$LOCALIZATION_TIMEOUT" <<'PY'
+import math
+import sys
+try:
+    value = float(sys.argv[1])
+except ValueError:
+    raise SystemExit('G1_LOCALIZATION_TIMEOUT_SEC 必须为有限正数')
+if not math.isfinite(value) or value <= 0:
+    raise SystemExit('G1_LOCALIZATION_TIMEOUT_SEC 必须为有限正数')
+print(value)
+PY
+  )" || die 'G1_LOCALIZATION_TIMEOUT_SEC 无效'
 
   g1_lock_stack
   check_prerequisites
@@ -327,7 +344,11 @@ start_base_stack() {
     ros2 run g1_relocalization g1_relocalization_node \
       --ros-args \
       --params-file "${RELOC_CFG}" \
-      -p map_path:="${MAP_PCD}"
+      -p map_path:="${MAP_PCD}" \
+      -p initialization_mode:="${localization_mode}" \
+      -p global_search_timeout_sec:="${LOCALIZATION_TIMEOUT}" \
+      -p global_initialization_timeout_sec:="${LOCALIZATION_TIMEOUT}" \
+      -p diagnostics_directory:="${RUNTIME_DIR}/localization"
 
   wait_for_topic /global_pcd_map 30 || die "未发布 /global_pcd_map"
 
@@ -348,8 +369,11 @@ start_base_stack() {
   activate_map_server
   wait_for_topic /map 20 || die "未出现 /map"
 
-  if [[ "${init_mode}" == "auto" ]]; then
-    publish_auto_pose
+  if [[ "${init_mode}" == "fixed" ]]; then
+    publish_fixed_pose
+  elif [[ "${init_mode}" == "auto" ]]; then
+    say "正在执行无先验全局定位；请保持机器人静止"
+    say "初始化总预算 ${LOCALIZATION_TIMEOUT} 秒，从首帧同步数据开始；诊断：${RUNTIME_DIR}/localization"
   else
     echo
     say "请在 RViz 顶部点击 2D Pose Estimate"
@@ -450,8 +474,17 @@ start_sequence() {
 
   start_base_stack "${init_mode}"
 
-  if ! wait_for_localization 300; then
-    warn "等待有效定位超时，但定位基础节点保持运行"
+  local wait_timeout=300
+  if [[ "$init_mode" == auto ]]; then
+    wait_timeout="$(python3 - "$LOCALIZATION_TIMEOUT" <<'PY'
+import sys
+print(float(sys.argv[1]) + 20.0)
+PY
+)"
+  fi
+  if ! wait_for_localization "$wait_timeout"; then
+    warn "定位失败或等待超时；定位基础节点保持运行，Nav2 未启动"
+    warn "可在 RViz 使用 2D Pose Estimate 人工定位"
     warn "完成 RViz 初始化后执行："
     if [[ "${with_dry}" == "yes" ]]; then
       warn "  ${SCRIPT_DIR}/g1_navigation.sh continue-dry"
@@ -559,6 +592,8 @@ usage() {
   $0 start-dry
   $0 start-auto
   $0 start-auto-dry
+  $0 start-fixed
+  $0 start-fixed-dry
   $0 continue
   $0 continue-dry
   $0 enable-dry
@@ -572,6 +607,9 @@ usage() {
   $0 start-dry
 
 说明：
+  start-auto / start-auto-dry 使用无先验全局搜索；保持机器人静止。
+  start-fixed / start-fixed-dry 使用 script/auto_start_pose.env 固定初值。
+  G1_LOCALIZATION_TIMEOUT_SEC 设置全局初始化总预算（默认180秒）。
   start-dry 只连接 DryRunBackend，不会向机器人发送真实运动命令。
 EOF_USAGE
 }
@@ -582,6 +620,8 @@ main() {
     start-dry) start_sequence manual yes ;;
     start-auto) start_sequence auto no ;;
     start-auto-dry) start_sequence auto yes ;;
+    start-fixed) start_sequence fixed no ;;
+    start-fixed-dry) start_sequence fixed yes ;;
     continue) g1_lock_stack; check_mapping_not_running; start_nav2_stack no ;;
     continue-dry) g1_lock_stack; check_mapping_not_running; start_nav2_stack yes ;;
     enable-dry) g1_lock_stack; enable_dry ;;
@@ -595,4 +635,6 @@ main() {
   esac
 }
 
-main "$@"
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  main "$@"
+fi

@@ -6,7 +6,7 @@
 - 功能对齐来源：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，本轮固定到 `afaf7bc5daefc98cfa045c0b50d05e17b7ac2053`（2026-10-20）。
 - [进度核对与分阶段迁移](docs/PC2_MIGRATION_PLAN.md) · [代码结构与整理规则](docs/CODE_STRUCTURE.md)。
 
-**P0 已完成；P1 平台层和 P2 实时定位联锁源码已完成，P2 本机编译及隔离测试通过；PC2 编译与现场检查待执行；P3–P7 待实施。** 保留已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md) 和 [P2 验收记录](docs/migration/P2_ACCEPTANCE.md)。
+**P0 已完成；P1–P3 源码迁移及本阶段本机检查完成；P3 全局定位已通过本机编译和隔离合成测试；PC2 编译与现场检查待执行；P4–P7 待实施。** 保留已有航点、多点任务与暂停巡航。更新日期为 2026-10-23，详见 [P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md) 、[P2](docs/migration/P2_ACCEPTANCE.md) 和 [P3 验收记录](docs/migration/P3_ACCEPTANCE.md)。
 
 ## 平台与验证范围
 
@@ -16,20 +16,20 @@
 | PC2 适配目标 | 按现有源码维护 Ubuntu 20.04 / ROS 2 Foxy / aarch64 / Python 3.8；上机时核实实际系统和依赖版本 |
 | 功能参考版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
 
-对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配。P1 离线检查与 P2 本机定位/速度桥编译、合成点云及 Dry Run 测试已通过；Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
+对齐的是功能和接口。保留 PC2 的 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2 本机定位/速度桥及 P3 全局匹配编译、合成点云与 Dry Run 测试已通过；Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
 
 ## 当前能力
 
 | 模块 | 本地已有 | 待从 Ubuntu 版迁移 |
 | --- | --- | --- |
 | 建图 | MID360、FAST-LIO、PCD 保存和二维地图转换；P1 已统一环境、进程归属和保存确认 | PC2 上机检查；后续整体验收 |
-| 定位 | 人工初始位姿 + 同步 NDT；三帧确认、实时状态及过期失效；固定起点入口 | 无先验全局定位、多候选确认和诊断 |
+| 定位 | 无先验全局 XY/yaw 搜索、多候选三帧验证、有限重试和诊断；保留人工/固定初值与实时失效联锁 | PC2 多位置/朝向实测及性能验收 |
 | 导航 | Foxy Nav2、`/cmd_vel_nav`、Dry Run 与真机桥；定位失效关门和旧速度清除 | 机体系速度反馈、`/Odometry_nav`、统一速度参数 |
 | 航点与任务 | 新鲜定位录点、任务校验、顺序导航、取消和恢复标记 | 单点任务结果持久化、双语讲解、人工放行、状态服务 |
 | 巡航 | 多圈、暂停、继续和停止；通过共用任务客户端检查新定位状态 | 后续任务与网页整合，保留 PC2 既有巡航能力 |
 | 语音与网页 | 有厂商语音头文件；没有业务语音包和网页目录 | `g1_audio_bridge`、网页建图/导航/编辑、多设备操作权 |
 
-当前 `start-auto` 仍是读取固定起点文件的旧入口，**不代表已实现无先验全局定位**。新命令语义将在迁移 P3 中处理。
+`start-auto` / `start-auto-dry` 现为无先验全局定位；旧固定坐标功能使用 `start-fixed` / `start-fixed-dry`，仍读取 `script/auto_start_pose.env`。手动入口 `start` / `start-dry` 保留。
 
 ## 代码目录
 
@@ -44,7 +44,7 @@ Git 仓库根目录就是包含 `src/`、`script/`、`maps/` 的工作空间。�
 │   ├── FAST_LIO_ROS2/            # 建图与里程计
 │   ├── Livox-SDK2/              # 雷达 SDK 源码
 │   ├── livox_ros_driver2/       # ROS 2 驱动
-│   ├── g1_relocalization/      # NDT 定位
+│   ├── g1_relocalization/      # 全局匹配、候选验证与 NDT 跟踪
 │   ├── g1_nav2_bringup/        # Foxy Nav2 配置与启动
 │   ├── g1_loco_bridge/         # 速度门控与 Unitree 后端
 │   ├── g1_task_interfaces/     # 当前 ExecuteMission Action
@@ -117,6 +117,13 @@ bash script/g1_mapping.sh finish
 # 地图转换：先查看工具参数，按实际地图设置地面、边界和障碍高度
 python3 maps/pcd2pgm_multilayer.py --help
 
+# 无先验全局定位（保持静止），确认成功后才启动规划/Dry Run
+bash script/g1_navigation.sh start-auto
+bash script/g1_navigation.sh start-auto-dry
+
+# 旧固定坐标入口；使用已有 script/auto_start_pose.env
+bash script/g1_navigation.sh start-fixed-dry
+
 # 人工定位与规划；在 RViz 中给定初始位置和朝向
 bash script/g1_navigation.sh start
 bash script/g1_navigation.sh continue
@@ -166,13 +173,21 @@ colcon test --build-base build_pc2 --install-base install_pc2 \
 colcon test-result --test-result-base build_pc2 --verbose
 ```
 
-录点、单点导航、多点任务及巡航继续复用任务包的健康判断。`--max-fitness-age` 的旧参数不能放宽状态 1 秒/成功扫描 3 秒的上限。人工初值需三帧独立同步扫描确认；本阶段 `start-auto` 仍读取固定初值文件。时间与状态契约、测试结果、PC2 检查点和成组回退见 [P2_ACCEPTANCE.md](docs/migration/P2_ACCEPTANCE.md)。
+录点、单点导航、多点任务及巡航继续复用任务包的健康判断。`--max-fitness-age` 的旧参数不能放宽状态 1 秒/成功扫描 3 秒的上限。人工初值需三帧独立同步扫描确认；P3 已将 `start-auto` 切换为全局搜索。时间与状态契约、测试结果、PC2 检查点和成组回退见 [P2_ACCEPTANCE.md](docs/migration/P2_ACCEPTANCE.md)。
+
+## P3 全局自动定位
+
+全局模式先采集静止扫描，再做全图 XY 与完整 360° yaw 粗搜索、多模式细化和 NDT 配准。默认验证最多 3 个候选，所有候选比较同一批后续新扫描，连续 3 帧确认，最多 3 轮采集。主候选稳定且三帧窗口平均覆盖率**严格大于 0.91** 可直接确认；`global_direct_accept_coverage: 1.0` 禁用该规则，此时须满足综合分和覆盖率分差，未验证的竞争位置会阻止确认。
+
+`G1_LOCALIZATION_TIMEOUT_SEC` 默认 `180.0` 秒，从定位节点收到首帧同步数据开始覆盖采集、搜索、验证与重试。失败或超时返回非零，保留定位节点供 RViz 人工后备，随后使用 `continue` / `continue-dry`。诊断位于 `runtime/navigation/localization/session_*/`，包含输入 PCD、地图/有效参数 SHA-256、候选评分与逐帧验证记录。
+
+地图地面模型、雷达高度、倒装方向及搜索范围须按现场核实。`global_matcher_check --map ...` 只检查地图索引；加独立扫描可检查搜索，仍须通过实时新帧确认。P3 本机证据与 PC2 检查点见 [P3_ACCEPTANCE.md](docs/migration/P3_ACCEPTANCE.md)。
 
 ## 迁移顺序
 
 P0 基线与结构整理 → P1 PC2 环境和路径 → P2 新鲜定位状态与联锁 → P3 全局自动定位 → P4 速度反馈与 Nav2 → P5 语音和任务 → P6 网页控制 → P7 PC2 整体验收。
 
-每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1/P2 已完成源码与本阶段本机检查；参考仓库或本机通过的检查不代表 PC2 已通过。
+每阶段的源码范围、依赖、Foxy 适配点、验收和回退条件均在 [PC2_MIGRATION_PLAN.md](docs/PC2_MIGRATION_PLAN.md)。P1–P3 已完成源码与本阶段本机检查；参考仓库或本机通过的检查不代表 PC2 已通过。
 
 ## 许可证
 

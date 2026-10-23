@@ -15,6 +15,7 @@ bash script/g1_check.sh > pc2-dependencies.json
 | --- | --- | --- |
 | 工具链 | CMake >= 3.16、GCC 的 C++17、make、colcon、Python 3.8、PyYAML、iproute2、util-linux | inventory、构建与离线脚本测试 |
 | 算法 | Eigen3、PCL（common/io/filters/registration）、OpenMP、Python 开发头、APR | CMake find_package / pkg-config |
+| P3 诊断 | OpenSSL 开发库（Ubuntu 包 `libssl-dev`）、POSIX 文件接口与 pthread | `find_package(OpenSSL/Threads)`；地图和有效参数 SHA-256 |
 | ROS | rclcpp、rclpy、rosidl generators/runtime、std/geometry/nav/sensor/visualization messages、tf2、pcl_ros、pcl_conversions、ament_cmake_auto | 包清单及 CMake |
 | 导航 | Foxy Nav2 的 map_server/controller/planner/recoveries/bt_navigator/lifecycle_manager、DWB、NavFn；启用图形时需要 RViz2 | `g1_check.sh`，启动时生命周期检查 |
 | 雷达 | 仓库 Livox SDK2 1.3.3 源码与 livox_ros_driver2 | 本机编译安装到 install_pc2/livox_sdk2；不用原机器二进制 |

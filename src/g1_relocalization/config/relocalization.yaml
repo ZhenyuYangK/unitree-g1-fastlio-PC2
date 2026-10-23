@@ -1,6 +1,11 @@
 g1_relocalization:
   ros__parameters:
-    map_path: ""  # 由运行脚本或 launch 注入路径
+    # The launch file supplies workspace/maps/map.pcd; ros2 run requires -p map_path:=...
+    map_path: ""
+    # start-auto 在命令行覆盖为 global；手动入口继续等待 /initialpose。
+    initialization_mode: "manual"
+    # 空值使用 G1_WS/runtime/navigation/localization（无 G1_WS 时 /tmp）；每次运行独立目录。
+    diagnostics_directory: ""
 
     global_frame: "map"
     odom_frame: "camera_init"
@@ -21,11 +26,70 @@ g1_relocalization:
 
     fitness_threshold: 2.0
     localization_period_ms: 500
-    initialization_mode: "manual"
-    # Sensor time and wall time both bound validity. Never raise beyond 3 seconds.
+
+    # 使用扫描时间匹配/插值里程计；不重复处理缓存扫描。
     max_scan_age_sec: 2.0
-    localization_valid_timeout_sec: 3.0
     max_odom_sync_gap_sec: 0.1
+    localization_valid_timeout_sec: 3.0
+
+    global_collection_sec: 2.0
+    global_collection_timeout_sec: 15.0
+    global_min_scan_count: 10
+    global_max_collection_points: 120000
     confirmation_scan_count: 3
+    verification_timeout_sec: 20.0
+    # 歧义候选排序后，用同一批新扫描比较；仍无法区分时重新采集。
+    global_verification_candidates: 3
+    # 主候选连续确认通过且窗口平均覆盖率严格大于 91% 时直接采用，
+    # 不再要求竞争分差，也不受未纳入验证的额外候选限制；设为 1.0 可禁用。
+    global_direct_accept_coverage: 0.91
+    # 未触发直接采用时，仍要求综合评分与覆盖率都拉开差距。
+    global_confirmation_coverage_gap: 0.08
+    global_max_attempts: 3
+    # 覆盖采集、搜索、候选验证和所有重试；启动脚本统一覆盖此总预算。
+    global_initialization_timeout_sec: 180.0
     confirmation_max_translation: 0.30
     confirmation_max_rotation_deg: 10.0
+
+    # 全图 x/y + 完整 360 度 yaw 粗搜索，再细化多个不同的候选。
+    # start-auto 使用 G1_LOCALIZATION_TIMEOUT_SEC（默认 180 秒）覆盖搜索预算。
+    global_search_timeout_sec: 60.0
+    global_use_search_bounds: false
+    # 可选限制搜索区域；默认采用 map 系，开启校平时采用校平坐标系。
+    global_min_x: -8.5
+    global_max_x: 28.05
+    global_min_y: -26.5
+    global_max_y: 25.05
+    global_grid_resolution: 0.25
+    global_coarse_xy_step: 1.0
+    global_coarse_yaw_step_deg: 10.0
+    global_fine_xy_step: 0.25
+    global_fine_yaw_step_deg: 2.0
+    global_retained_modes: 96
+    # 初始细化 12 个；其余可信竞争模式在同一搜索预算内继续细化。
+    global_ndt_candidates: 12
+
+    # 当前单楼层地图地面模型 z = a*x + b*y + c。
+    # 雷达高度/地图/安装改变时须重新标定；不是任意楼层通用参数。
+    global_use_ground_plane: true
+    global_ground_a: -0.06203
+    global_ground_b: -0.02687
+    global_ground_c: -1.51
+    global_sensor_height: 1.51
+    # true 将按地面法线校平；当前保留地图的既有重力轴。
+    global_level_from_ground_plane: false
+    global_map_roll_deg: 0.0
+    global_map_pitch_deg: 0.0
+    global_initial_z: 0.0
+    global_min_scan_z: -0.8
+    global_max_scan_z: 2.0
+    global_max_scan_range: 20.0
+
+    # 初始匹配比局部跟踪严格；需用独立实测扫描校验这些阈值。
+    global_min_correlative_score: 0.45
+    global_ambiguity_score_gap: 0.08
+    global_unresolved_score_gap: 0.025
+    global_max_fitness: 0.60
+    global_coverage_distance: 0.45
+    global_min_coverage: 0.65
+    global_max_inlier_rmse: 0.35
