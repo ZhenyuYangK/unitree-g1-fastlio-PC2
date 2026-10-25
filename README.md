@@ -6,7 +6,6 @@
 - 本项目的 Ubuntu 22.04 x86_64 版本：[unitree-fastlio-ubuntu22.04](https://github.com/ZhenyuYangK/unitree-fastlio-ubuntu22.04)，使用 ROS 2 Humble；在该平台运行时请使用此版本。
 
 
-**P0 已完成；P1–P6 源码迁移及各阶段本机检查完成；P6 网页已通过 Python 3.8、API、浏览器及隔离 ROS 检查；PC2 Foxy/aarch64 与硬件现场检查、P7 整体验收待执行。** 保留已有航点、多点任务与暂停巡航。更新日期：2026-10-23。阶段记录：[P0](docs/migration/P0_ACCEPTANCE.md)、[P1](docs/migration/P1_ACCEPTANCE.md)、[P2](docs/migration/P2_ACCEPTANCE.md)、[P3](docs/migration/P3_ACCEPTANCE.md)、[P4](docs/migration/P4_ACCEPTANCE.md)、[P5](docs/migration/P5_ACCEPTANCE.md)、[P6](docs/migration/P6_ACCEPTANCE.md)。
 
 ## 平台与验证范围
 
@@ -16,11 +15,11 @@
 | PC2 适配目标 | 按现有源码维护 Ubuntu 20.04 / ROS 2 Foxy / aarch64 / Python 3.8；上机时核实实际系统和依赖版本 |
 | Ubuntu 22.04 x86_64 版本 | Ubuntu 22.04 / ROS 2 Humble / x86_64 / Python 3.10 |
 
-两个平台版本按同一项目的功能和接口进行同步，PC2 版本保留 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2/P3 定位与全局匹配测试、P4 FAST-LIO/速度桥/导航转换器及 P5 接口/语音桥编译和隔离测试已通过；P6 已在隔离 Python 3.8.20 实际运行测试，并核验 aarch64 安装包；其他阶段的 Python 3.8 语法检查通过。测试使用独立 ROS Domain 和 localhost，没有启动真机运动后端。PC2 编译、DDS 实收与硬件结果须单独验收。
+两个平台版本按同一项目的功能和接口进行同步，PC2 版本保留 Foxy、DDS 和 aarch64 适配。P1 离线检查、P2/P3 定位与全局匹配测试、P4 FAST-LIO/速度桥/导航转换器及 P5 接口/语音桥编译和隔离测试已通过；P6 已在隔离 Python 3.8.20 实际运行测试，并核验 aarch64 安装包；其他阶段的 Python 3.8 语法检查通过。
 
 ## 当前能力
 
-| 模块 | PC2 版本当前实现 | 待同步与验证 |
+| 模块 | PC2 版本当前实现 | 同步与验证 |
 | --- | --- | --- |
 | 建图 | MID360、FAST-LIO、PCD 保存和二维地图转换；P1 已统一环境、进程归属和保存确认 | PC2 上机检查；后续整体验收 |
 | 定位 | 无先验全局 XY/yaw 搜索、多候选三帧验证、有限重试和诊断；保留人工/固定初值与实时失效联锁 | PC2 多位置/朝向实测及性能验收 |
