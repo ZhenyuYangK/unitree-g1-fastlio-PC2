@@ -197,9 +197,11 @@ TEST(GlobalMatcher, CancellationAndBudgetsNeverReturnPartialSuccess)
   auto options = settings();
   GlobalMatcher matcher(room(), options);
   const auto scan = independentScan(pose(1, -1, 0.8));
-  EXPECT_EQ(matcher.search(scan, []() {return true;}).status, GlobalMatchStatus::CANCELLED);
+  const auto immediately_cancelled = matcher.search(scan, []() {return true;});
+  EXPECT_EQ(immediately_cancelled.status, GlobalMatchStatus::CANCELLED);
   int checks = 0;
-  EXPECT_EQ(matcher.search(scan, [&checks]() {return ++checks > 8;}).status,
+  const auto cancelled_during_search = matcher.search(scan, [&checks]() {return ++checks > 8;});
+  EXPECT_EQ(cancelled_during_search.status,
     GlobalMatchStatus::CANCELLED);
   options.max_search_evaluations = 100;
   GlobalMatcher limited(room(), options);

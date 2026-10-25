@@ -91,7 +91,7 @@ class NavigationConfigTest(unittest.TestCase):
     def shell(self, script, body):
         config = self.path / 'local.env'
         config.write_text('')
-        env = dict(os.environ, G1_WS=str(self.path), G1_LOCAL_ENV=str(config))
+        env = dict({k: v for k, v in os.environ.items() if not k.startswith('G1_')}, G1_WS=str(self.path), G1_LOCAL_ENV=str(config))
         code = '''set -Eeuo pipefail
 source {script}
 g1_lock_stack() {{ :; }}
@@ -134,7 +134,7 @@ main enable''')
         config = self.path / 'local.env'
         config.write_text('')
         for profile in ('safe', 'target'):
-            env = dict(os.environ, G1_WS=str(self.path), G1_LOCAL_ENV=str(config), G1_NAV_PROFILE=profile)
+            env = dict({k: v for k, v in os.environ.items() if not k.startswith('G1_')}, G1_WS=str(self.path), G1_LOCAL_ENV=str(config), G1_NAV_PROFILE=profile)
             code = 'source {}; generate_runtime_files'.format(shlex.quote(str(ROOT / 'script/g1_navigation.sh')))
             result = subprocess.run(['bash', '-c', code], env=env, text=True,
                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=10)

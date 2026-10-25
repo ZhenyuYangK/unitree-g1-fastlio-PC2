@@ -202,7 +202,7 @@
       "sha256": "698b065d680a20695f2163ca5bbe601792b24069357919bee3136768d75f8f7f"
     },
     "src/livox_ros_driver2/src/include/livox_ros_driver2.h": {
-      "sha256": "4d2410dbcab335bea5b84de91176c86dbbb8958c1bded396a650dae0361c4781"
+      "sha256": "efd864db428f24f1be64981e8a5f6c039a2d0ff1d8236a3764f4a9a79b138649"
     },
     "third_party/unitree_sdk2_native/LICENSE": {
       "sha256": "3e83dbd580cc82cfb666b0d1db48e2511fc092b4e2666b8f1d1ad5bedad65dbf"

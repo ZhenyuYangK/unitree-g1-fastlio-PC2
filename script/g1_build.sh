@@ -33,4 +33,4 @@ exec colcon --log-base "$G1_LOG_DIR" build \
   --base-paths "$G1_WS/src" --packages-ignore livox_sdk2 \
   --build-base "$G1_BUILD_DIR" --install-base "$G1_INSTALL_DIR" \
   --executor sequential "$@" \
-  --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=foxy -DCMAKE_BUILD_TYPE=Release
+  --cmake-args -DROS_EDITION=ROS2 -DDISTRO_ROS=foxy -DCMAKE_BUILD_TYPE=Release -DPython3_EXECUTABLE:FILEPATH=/usr/bin/python3 -DPYTHON_EXECUTABLE:FILEPATH=/usr/bin/python3
