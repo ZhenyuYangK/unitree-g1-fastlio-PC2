@@ -43,9 +43,9 @@ wait_for_localization() {{ echo WAIT "$@"; return 0; }}
     def test_auto_is_global_and_never_publishes_fixed_pose(self):
         result = self.run_flow('main start-auto-dry')
         self.assertEqual(result.returncode, 0, result.stdout)
-        self.assertIn('<initialization_mode:=global>', result.stdout)
-        self.assertIn('<global_initialization_timeout_sec:=180.0>', result.stdout)
-        self.assertIn('<global_search_timeout_sec:=180.0>', result.stdout)
+        self.assertIn('<g1_relocalization:initialization_mode:=global>', result.stdout)
+        self.assertIn('<g1_relocalization:global_initialization_timeout_sec:=180.0>', result.stdout)
+        self.assertIn('<g1_relocalization:global_search_timeout_sec:=180.0>', result.stdout)
         self.assertIn('WAIT 200.0', result.stdout)
         self.assertIn('NAV2 yes', result.stdout)
         self.assertNotIn('FIXED_POSE', result.stdout)
@@ -54,7 +54,7 @@ wait_for_localization() {{ echo WAIT "$@"; return 0; }}
         for command in ('start', 'start-dry', 'start-fixed', 'start-fixed-dry'):
             result = self.run_flow('main ' + command)
             self.assertEqual(result.returncode, 0, result.stdout)
-            self.assertIn('<initialization_mode:=manual>', result.stdout)
+            self.assertIn('<g1_relocalization:initialization_mode:=manual>', result.stdout)
             self.assertEqual('FIXED_POSE' in result.stdout, 'fixed' in command)
 
     def test_failed_wait_returns_nonzero_without_starting_nav2_or_stopping_nodes(self):

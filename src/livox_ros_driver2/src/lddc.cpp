@@ -218,6 +218,8 @@ void Lddc::PublishPointcloud2(LidarDataQueue *queue, uint8_t index) {
 }
 
 void Lddc::PublishCustomPointcloud(LidarDataQueue *queue, uint8_t index) {
+  // Some MID360 firmware/SDK combinations deliver one 96-point UDP packet per
+  // StoragePacket. Aggregate those packets here so publish_freq is respected.
   using Clock = std::chrono::steady_clock;
   static auto last_report = Clock::now();
   static double max_publish_ms = 0.0;
@@ -236,9 +238,56 @@ void Lddc::PublishCustomPointcloud(LidarDataQueue *queue, uint8_t index) {
       continue;
     }
 
-    CustomMsg livox_msg;
-    InitCustomMsg(livox_msg, pkg, index);
-    FillPointsToCustomMsg(livox_msg, pkg);
+    const uint64_t packet_start_ns = pkg.base_time;
+    const uint64_t max_contiguous_gap_ns =
+        static_cast<uint64_t>(publish_period_ns_) * 4U;
+    const bool time_discontinuity =
+        pending_custom_active_[index] &&
+        (packet_start_ns < pending_custom_start_ns_[index] ||
+         packet_start_ns - pending_custom_start_ns_[index] >
+             max_contiguous_gap_ns);
+
+    if (!pending_custom_active_[index] || time_discontinuity) {
+      pending_custom_msg_[index] = CustomMsg();
+      InitCustomMsg(pending_custom_msg_[index], pkg, index);
+      pending_custom_msg_[index].points.clear();
+      pending_custom_msg_[index].point_num = 0;
+      pending_custom_start_ns_[index] = packet_start_ns;
+      pending_custom_active_[index] = true;
+    }
+
+    CustomMsg& livox_msg = pending_custom_msg_[index];
+    const uint64_t scan_start_ns = pending_custom_start_ns_[index];
+    for (const PointXyzlt& source : pkg.points) {
+      if (source.offset_time < scan_start_ns) {
+        continue;
+      }
+      const uint64_t offset_ns = source.offset_time - scan_start_ns;
+      if (offset_ns > UINT32_MAX) {
+        continue;
+      }
+      CustomPoint point;
+      point.x = source.x;
+      point.y = source.y;
+      point.z = source.z;
+      point.reflectivity = source.intensity;
+      point.tag = source.tag;
+      point.line = source.line;
+      point.offset_time = static_cast<uint32_t>(offset_ns);
+      livox_msg.points.push_back(std::move(point));
+    }
+    livox_msg.point_num = static_cast<uint32_t>(livox_msg.points.size());
+
+    const uint64_t packet_end_ns = pkg.points.back().offset_time;
+    const uint64_t target_span_ns =
+        publish_period_ns_ > kNsTolerantFrameTimeDeviation
+            ? publish_period_ns_ - kNsTolerantFrameTimeDeviation
+            : publish_period_ns_;
+    if (packet_end_ns < scan_start_ns ||
+        packet_end_ns - scan_start_ns < target_span_ns) {
+      continue;
+    }
+
     const auto publish_start = Clock::now();
     const auto now_ns = std::chrono::duration_cast<std::chrono::nanoseconds>(
         std::chrono::system_clock::now().time_since_epoch()).count();
@@ -246,6 +295,9 @@ void Lddc::PublishCustomPointcloud(LidarDataQueue *queue, uint8_t index) {
         (static_cast<double>(now_ns) - static_cast<double>(pkg.base_time)) / 1e6;
 
     PublishCustomPointData(livox_msg, index);
+    pending_custom_msg_[index] = CustomMsg();
+    pending_custom_start_ns_[index] = 0;
+    pending_custom_active_[index] = false;
     const auto publish_end = Clock::now();
 
     const double publish_ms =
@@ -267,6 +319,7 @@ void Lddc::PublishCustomPointcloud(LidarDataQueue *queue, uint8_t index) {
     }
   }
 }
+
 
 /* for pcl::pxyzi */
 void Lddc::PublishPclMsg(LidarDataQueue *queue, uint8_t index) {

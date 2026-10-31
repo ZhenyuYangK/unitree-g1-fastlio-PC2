@@ -111,6 +111,21 @@ deque<double>                     time_buffer;
 deque<PointCloudXYZI::Ptr>        lidar_buffer;
 deque<sensor_msgs::msg::Imu::ConstSharedPtr> imu_buffer;
 
+constexpr double MAX_SENSOR_TIME_JUMP_SEC = 5.0;
+constexpr double MAX_LIDAR_BUFFER_AGE_SEC = 1.0;
+constexpr size_t MAX_LIDAR_BUFFER_SCANS = 50;
+
+void trim_lidar_buffer(double newest_time)
+{
+    while (!time_buffer.empty() &&
+           (lidar_buffer.size() > MAX_LIDAR_BUFFER_SCANS ||
+            newest_time - time_buffer.front() > MAX_LIDAR_BUFFER_AGE_SEC))
+    {
+        lidar_buffer.pop_front();
+        time_buffer.pop_front();
+    }
+}
+
 PointCloudXYZI::Ptr featsFromMap(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_undistort(new PointCloudXYZI());
 PointCloudXYZI::Ptr feats_down_body(new PointCloudXYZI());
@@ -289,10 +304,18 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
     scan_count ++;
     double cur_time = get_time_sec(msg->header.stamp);
     double preprocess_start_time = omp_get_wtime();
-    if (!is_first_lidar && cur_time < last_timestamp_lidar)
+    if (!is_first_lidar &&
+        (cur_time < last_timestamp_lidar ||
+         cur_time - last_timestamp_lidar > MAX_SENSOR_TIME_JUMP_SEC))
     {
-        std::cerr << "lidar loop back, clear buffer" << std::endl;
+        RCLCPP_FATAL(rclcpp::get_logger("laser_mapping"),
+                     "LiDAR timestamp discontinuity detected; restart FAST-LIO");
         lidar_buffer.clear();
+        time_buffer.clear();
+        imu_buffer.clear();
+        mtx_buffer.unlock();
+        rclcpp::shutdown();
+        return;
     }
     if (is_first_lidar)
     {
@@ -303,6 +326,7 @@ void standard_pcl_cbk(const sensor_msgs::msg::PointCloud2::UniquePtr msg)
     p_pre->process(msg, ptr);
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(cur_time);
+    trim_lidar_buffer(cur_time);
     last_timestamp_lidar = cur_time;
     s_plot11[scan_count] = omp_get_wtime() - preprocess_start_time;
     mtx_buffer.unlock();
@@ -317,10 +341,18 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
     double cur_time = get_time_sec(msg->header.stamp);
     double preprocess_start_time = omp_get_wtime();
     scan_count ++;
-    if (!is_first_lidar && cur_time < last_timestamp_lidar)
+    if (!is_first_lidar &&
+        (cur_time < last_timestamp_lidar ||
+         cur_time - last_timestamp_lidar > MAX_SENSOR_TIME_JUMP_SEC))
     {
-        std::cerr << "lidar loop back, clear buffer" << std::endl;
+        RCLCPP_FATAL(rclcpp::get_logger("laser_mapping"),
+                     "LiDAR timestamp discontinuity detected; restart FAST-LIO");
         lidar_buffer.clear();
+        time_buffer.clear();
+        imu_buffer.clear();
+        mtx_buffer.unlock();
+        rclcpp::shutdown();
+        return;
     }
     if(is_first_lidar)
     {
@@ -344,6 +376,7 @@ void livox_pcl_cbk(const livox_ros_driver2::msg::CustomMsg::UniquePtr msg)
     p_pre->process(msg, ptr);
     lidar_buffer.push_back(ptr);
     time_buffer.push_back(last_timestamp_lidar);
+    trim_lidar_buffer(last_timestamp_lidar);
     
     s_plot11[scan_count] = omp_get_wtime() - preprocess_start_time;
     mtx_buffer.unlock();
@@ -368,10 +401,18 @@ void imu_cbk(const sensor_msgs::msg::Imu::UniquePtr msg_in)
 
     mtx_buffer.lock();
 
-    if (timestamp < last_timestamp_imu)
+    if (last_timestamp_imu >= 0.0 &&
+        (timestamp < last_timestamp_imu ||
+         timestamp - last_timestamp_imu > MAX_SENSOR_TIME_JUMP_SEC))
     {
-        std::cerr << "lidar loop back, clear buffer" << std::endl;
+        RCLCPP_FATAL(rclcpp::get_logger("laser_mapping"),
+                     "IMU timestamp discontinuity detected; restart FAST-LIO");
         imu_buffer.clear();
+        lidar_buffer.clear();
+        time_buffer.clear();
+        mtx_buffer.unlock();
+        rclcpp::shutdown();
+        return;
     }
 
     last_timestamp_imu = timestamp;

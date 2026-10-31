@@ -73,9 +73,47 @@ check_mapping_not_running() {
   assert_not_running "${WS}/runtime/mapping/mapping.pids"
 }
 
+check_system_clock() {
+  local epoch_seconds ntp_synchronized
+
+  epoch_seconds="$(date +%s 2>/dev/null)" || die "无法读取系统时间"
+  if [[ ! "${epoch_seconds}" =~ ^[0-9]+$ ]]; then
+    die "系统时间格式无效：${epoch_seconds}"
+  fi
+  if (( epoch_seconds < 1609459200 )); then
+    die "系统时间尚未校准（当前 epoch=${epoch_seconds}）；请等待 NTP 同步后再启动"
+  fi
+
+  if ! command -v timedatectl >/dev/null 2>&1; then
+    die "缺少 timedatectl，无法确认系统时钟已同步"
+  fi
+  ntp_synchronized="$(timedatectl show --property=NTPSynchronized --value 2>/dev/null || true)"
+  if [[ "${ntp_synchronized}" != yes ]]; then
+    die "NTP 尚未同步；请等待 timedatectl 显示 NTPSynchronized=yes 后再启动"
+  fi
+
+  ok "系统时间与 NTP 已同步"
+}
+
+wait_for_previous_nodes() {
+  local nodes attempt
+  # DDS/ros2 daemon discovery can briefly retain names after verified processes
+  # exit. Wait for that graph update; persistent or unqueryable nodes still block.
+  for attempt in 1 2 3 4 5; do
+    nodes="$(timeout 8 ros2 node list)" || die '无法检查现有 ROS 节点'
+    if ! grep -Eq '/(livox_lidar_publisher|laserMapping|fastlio_mapping|controller_server|g1_relocalization|map_server)$' <<<"$nodes"; then
+      return 0
+    fi
+    [[ "$attempt" != 5 ]] || die '已有建图/定位/导航节点，请由原启动方停止'
+    [[ "$attempt" != 1 ]] || warn '等待已停止节点从 ROS 发现列表移除；若持续存在则拒绝启动'
+    sleep 1
+  done
+}
+
 check_prerequisites() {
   [[ -d "${WS}" ]] || die "工作空间不存在：${WS}"
   check_mapping_not_running
+  check_system_clock
 
   check_file "${MAP_PCD}"
   check_file "${MAP_PGM}"
@@ -181,6 +219,8 @@ for line in fast_lines:
     if stripped.startswith("pcd_save_en:"):
         fast_out.append(f"{indent}pcd_save_en: false")
         found_save = True
+    elif stripped.startswith(("map_en:", "path_en:", "effect_map_en:")):
+        fast_out.append(f"{indent}{stripped.split(':', 1)[0]}: false")
     else:
         fast_out.append(line)
 if not found_save:
@@ -273,11 +313,7 @@ PY
   check_prerequisites
   assert_not_running "$PID_FILE"
   assert_not_running "${WS}/runtime/navigation/real_bridge.pid"
-  local nodes
-  nodes="$(timeout 8 ros2 node list)" || die '无法检查现有 ROS 节点'
-  if grep -Eq '/(livox_lidar_publisher|laserMapping|fastlio_mapping|controller_server|g1_relocalization|map_server)$' <<<"$nodes"; then
-    die '已有建图/定位/导航节点，请由原启动方停止'
-  fi
+  wait_for_previous_nodes
   stop_from_pid_file
   g1_prepare_livox_config
   generate_runtime_files
@@ -301,11 +337,11 @@ PY
     ros2 run g1_relocalization g1_relocalization_node \
       --ros-args \
       --params-file "${RELOC_CFG}" \
-      -p map_path:="${MAP_PCD}" \
-      -p initialization_mode:="${localization_mode}" \
-      -p global_search_timeout_sec:="${LOCALIZATION_TIMEOUT}" \
-      -p global_initialization_timeout_sec:="${LOCALIZATION_TIMEOUT}" \
-      -p diagnostics_directory:="${RUNTIME_DIR}/localization"
+      -p g1_relocalization:map_path:="${MAP_PCD}" \
+      -p g1_relocalization:initialization_mode:="${localization_mode}" \
+      -p g1_relocalization:global_search_timeout_sec:="${LOCALIZATION_TIMEOUT}" \
+      -p g1_relocalization:global_initialization_timeout_sec:="${LOCALIZATION_TIMEOUT}" \
+      -p g1_relocalization:diagnostics_directory:="${RUNTIME_DIR}/localization"
 
   wait_for_topic /global_pcd_map 30 || die "未发布 /global_pcd_map"
 

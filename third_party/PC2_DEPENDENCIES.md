@@ -27,3 +27,5 @@ bash script/g1_check.sh > pc2-dependencies.json
 G1 桥和 probes 使用 `unitree_api` 的 Request/Response 通道，**不链接原生 Unitree SDK2 静态库，也不注入其 bundled DDS 库**。`third_party/unitree_sdk2_native/` 的 aarch64 与 x86_64 已解压库作为可选历史资产分别记录校验和；当前构建不需要缺失的压缩归档和 B2/H2 示例。显式需要原生 SDK 时使用 `bash script/restore_vendor_libraries.sh --arch aarch64 --check` 校验；恢复模式只接受本地压缩包内单个、尺寸及 SHA-256 都匹配的库，不联网取未知二进制。
 
 release 调试须同时指定 `G1_RMW_SETUP` 与 `G1_DDS_LIB_DIR`，自检要求实际加载的 RMW 位于该 setup 下、ldd 实际使用的 DDS 位于配置目录。`g1_check.sh` 会输出 RMW package.xml 版本、两个库的 SHA-256 和链接解析结果；版本兼容性最终还须通过 PC2 上建图、人工定位与收发测试确认。
+
+独立 RMW Release 构建、性能验证与回退步骤见 [PC2 RMW 性能修复](PC2_RMW_PERFORMANCE.md)。
