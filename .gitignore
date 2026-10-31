@@ -55,7 +55,13 @@ core.*
 /maps/*.pcd
 /maps/*.pgm
 /maps/*.yaml
-/task_data/
+# Keep the directory layout; ignore all site-specific task data.
+/task_data/**
+!/task_data/maps/
+!/task_data/maps/laboratory_map_v1/
+!/task_data/maps/laboratory_map_v1/.gitkeep
+!/task_data/missions/
+!/task_data/missions/.gitkeep
 
 # Historical copies and nested repository metadata
 *.bak
