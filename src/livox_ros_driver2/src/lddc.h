@@ -139,6 +139,9 @@ class Lddc final {
   double publish_frq_;
   uint32_t publish_period_ns_;
   std::string frame_id_;
+  CustomMsg pending_custom_msg_[kMaxSourceLidar];
+  uint64_t pending_custom_start_ns_[kMaxSourceLidar] {};
+  bool pending_custom_active_[kMaxSourceLidar] {};
 
 #ifdef BUILDING_ROS1
   bool enable_lidar_bag_;

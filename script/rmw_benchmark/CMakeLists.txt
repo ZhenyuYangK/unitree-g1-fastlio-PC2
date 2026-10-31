@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.5)
+project(g1_rmw_benchmark)
+find_package(ament_cmake REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(livox_ros_driver2 REQUIRED)
+add_executable(benchmark main.cpp)
+ament_target_dependencies(benchmark rclcpp livox_ros_driver2)

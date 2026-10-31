@@ -52,7 +52,10 @@ def navigation_parameters(source, profile):
     if 'goal_checker_plugins' in controller or 'goal_checker_plugin' not in controller:
         raise ValueError('Expected Foxy goal_checker_plugin parameter')
     bt = node_params(data, 'bt_navigator')
-    bt.update(odom_topic='/Odometry_nav', use_sim_time=False, default_bt_xml_filename='')
+    bt.update(odom_topic='/Odometry_nav', use_sim_time=False)
+    bt.pop('default_bt_xml_filename', None)
+    if 'bt_navigator_rclcpp_node' in data:
+        node_params(data, 'bt_navigator_rclcpp_node')['use_sim_time'] = False
     if 'default_nav_to_pose_bt_xml' in bt or 'behavior_server' in data:
         raise ValueError('Humble parameters cannot be used by the Foxy launch')
     recovery = node_params(data, 'recoveries_server')
