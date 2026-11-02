@@ -61,7 +61,9 @@ class MappingPreview:
         with self.lock:
             if self.cached is None:
                 values = list(self.cells.values())
-                stride = max(1, math.ceil(len(values) / 5000))
+                # This is a coverage preview, not the saved point cloud. Keep each
+                # state frame small enough for a phone on an unreliable WLAN.
+                stride = max(1, math.ceil(len(values) / 1000))
                 self.cached = values[::stride]
             return {'available': bool(self.cached), 'stale': time.time() - self.received_at > 3,
                     'frame_id': self.frame, 'points': self.cached, 'revision': self.revision,

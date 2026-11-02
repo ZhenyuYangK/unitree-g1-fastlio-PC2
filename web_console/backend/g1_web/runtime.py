@@ -1,9 +1,38 @@
 """Read PC2 process ownership records without weakening the CLI's stop checks."""
 import json
+import contextvars
+from contextlib import contextmanager
 from pathlib import Path
+import threading
 
 from .paths import SCRIPT_SOURCE
 import g1_process
+
+
+_observation = contextvars.ContextVar('g1_process_observation', default=None)
+
+
+class ProcessObservation:
+    def __init__(self):
+        self.lock = threading.Lock()
+        self.snapshot = None
+
+    def members(self, record):
+        with self.lock:
+            if self.snapshot is None:
+                self.snapshot = g1_process.process_snapshot()
+            snapshot = self.snapshot
+        return g1_process.members(record, snapshot=snapshot)
+
+
+@contextmanager
+def process_observation():
+    """Share one verified process scan within one state sample, never commands."""
+    token = _observation.set(ProcessObservation())
+    try:
+        yield
+    finally:
+        _observation.reset(token)
 
 
 def process(pid, proc=Path('/proc')):
@@ -17,7 +46,9 @@ def process(pid, proc=Path('/proc')):
 def group_state(pid, token=None, proc=Path('/proc')):
     if isinstance(token, dict):
         try:
-            return 'running' if g1_process.members(token) else 'stopped'
+            observation = _observation.get()
+            members = observation.members(token) if observation else g1_process.members(token)
+            return 'running' if members else 'stopped'
         except (OSError, RuntimeError, ValueError, KeyError):
             return 'unverified'
     leader = process(pid, proc)

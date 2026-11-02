@@ -14,6 +14,11 @@ let snapshot = null, catalog = null, socket = null, lastReceived = 0, connected 
 let pending = false, leaseId = sessionStorage.getItem("g1_control_lease") || "";
 let haveLease = false, retryTimer = null, retryDelay = 1000, instanceId = null, sequence = -1;
 let leaseVersion = 0, leaseValidUntil = 0, renewal = null, snapshotReceivedAt = 0;
+let socketStartedAt = 0, lastSocketReceived = 0, lastSocketRecovery = -10000;
+let statePoll = null, statePollController = null, nextStatePoll = 0, stateWasStale = false;
+const preferHTTPState = /iPhone|iPad|iPod/.test(navigator.userAgent)
+  || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+let httpStateMode = false;
 let toastTimer = null, editor = null, mappingUI = null, navigationUI = null, cruiseUI = null, mapMetadata = null, mapView = null, mapPickingDraft = null;
 let catalogLoading = null, mapLoading = false;
 let catalogRetryAt = 0, mapRetryAt = 0;
@@ -42,23 +47,56 @@ function toast(message, error = false) {
   toastTimer = setTimeout(() => { $("toast").hidden = true; }, 4500);
 }
 
-async function api(path, { method = "GET", body, control = false, revision } = {}) {
+function reportConnection(event, { code = 0, detail = '' } = {}) {
+  if ($('loginDialog').open) return;
+  const age = lastReceived ? performance.now() - lastReceived : 0;
+  fetch('/api/v1/diagnostics/connection', {
+    method: 'POST', credentials: 'same-origin', keepalive: true,
+    signal: AbortSignal.timeout(2500),
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ event, code, detail: String(detail).slice(0, 240),
+      age_ms: Math.min(86400000, Math.max(0, age)) }),
+  }).catch(() => {});
+}
+window.addEventListener('error', event => reportConnection('js_error', {detail:event.message}));
+window.addEventListener('unhandledrejection', event => reportConnection('js_error', {
+  detail:event.reason?.name || 'Unhandled promise rejection',
+}));
+
+async function api(path, { method = "GET", body, control = false, revision, timeoutMs = 8000, signal } = {}) {
   const headers = {};
   const requestLease = leaseId, requestVersion = leaseVersion;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   if (control) headers["X-Control-Lease"] = leaseId;
   if (revision) headers["If-Match"] = `"${revision}"`;
-  const response = await fetch(`/api/v1${path}`, {
-    method, headers, credentials: "same-origin", signal: AbortSignal.timeout(8000),
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  const result = await response.json();
-  if (!response.ok) {
-    if (response.status === 401) showLogin();
-    if (result.error?.code === "CONTROL_REQUIRED" && control && requestLease === leaseId && requestVersion === leaseVersion) clearLease();
-    throw new Error(result.error?.message || result.detail?.[0]?.msg || `接口返回 ${response.status}`);
+  const controller = new AbortController();
+  const abort = () => controller.abort(signal.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener('abort', abort, {once:true});
+  const timer = setTimeout(() => controller.abort(new DOMException('Request timed out', 'TimeoutError')), timeoutMs);
+  try {
+    // Cover both the headers and response body with the same deadline.
+    controller.signal.throwIfAborted();
+    const response = await fetch(`/api/v1${path}`, {
+      method, headers, credentials: "same-origin", signal: controller.signal,
+      ...(path === '/state' ? {cache:'no-store'} : {}),
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    });
+    const result = await response.json();
+    controller.signal.throwIfAborted();
+    if (!response.ok) {
+      if (response.status === 401) showLogin();
+      if (result.error?.code === "CONTROL_REQUIRED" && control && requestLease === leaseId && requestVersion === leaseVersion) clearLease();
+      const error = new Error(result.error?.message || result.detail?.[0]?.msg || `接口返回 ${response.status}`);
+      error.status = response.status;
+      error.code = result.error?.code || '';
+      throw error;
+    }
+    return result;
+  } finally {
+    clearTimeout(timer);
+    signal?.removeEventListener('abort', abort);
   }
-  return result;
 }
 
 function view(name) {
@@ -97,6 +135,7 @@ function controlTimeText(fresh) {
 function showLogin() {
   connected = false;
   haveLease = false;
+  cancelStatePoll();
   clearTimeout(retryTimer);
   if (socket) socket.close();
   if (!$("loginDialog").open) $("loginDialog").showModal();
@@ -209,15 +248,87 @@ function renderCatalog() {
   }
 }
 
+function acceptState(message) {
+  if (message.type !== 'state' || message.schema_version !== 1) return;
+  if (instanceId !== message.instance_id) {
+    if (instanceId !== null) { clearLease(); loadCatalog(); }
+    instanceId = message.instance_id; sequence = -1;
+  }
+  if (message.sequence <= sequence) return;
+  sequence = message.sequence;
+  snapshot = message; connected = true; lastReceived = performance.now(); snapshotReceivedAt = Date.now(); retryDelay = 1000;
+  if (stateWasStale) reportConnection('state_recovered');
+  stateWasStale = false;
+  if (message.data.configuration?.available && message.data.configuration.revision !== catalog?.revision && performance.now() >= catalogRetryAt) loadCatalog();
+  if (!message.data.simulated && message.data.map.available && message.data.map.revision !== mapMetadata?.revision && performance.now() >= mapRetryAt) loadMap();
+  render();
+}
+
+function cancelStatePoll() {
+  const controller = statePollController;
+  statePollController = null;
+  statePoll = null;
+  nextStatePoll = 0;
+  controller?.abort();
+}
+
+function maintainConnection() {
+  if (document.hidden || $('loginDialog').open || (!socket && !httpStateMode)) return;
+  const now = performance.now();
+  const age = now - (lastReceived || socketStartedAt);
+  if (age >= 2000 && !stateWasStale) {
+    stateWasStale = true;
+    reportConnection('state_stale');
+  }
+  // A socket may remain OPEN after its route has stopped carrying data.
+  // Read a fresh snapshot while reconnecting; commands still require fresh state.
+  if (age >= (httpStateMode ? 500 : 1500) && !statePoll && now >= nextStatePoll) {
+    const controller = new AbortController();
+    statePollController = controller;
+    statePoll = api('/state', {timeoutMs:1500, signal:controller.signal}).then(message => {
+      if (statePollController === controller && !controller.signal.aborted && !document.hidden && !$('loginDialog').open) acceptState(message);
+    }).catch(error => {
+      if (statePollController !== controller || controller.signal.aborted) return;
+      reportConnection('state_failed', {code:error.status || 0, detail:error.name});
+    }).finally(() => {
+      // An old request must not release a replacement request's slot.
+      if (statePollController !== controller) return;
+      statePoll = null;
+      statePollController = null;
+      nextStatePoll = performance.now() + (httpStateMode ? 250 : 1000);
+    });
+  }
+  if (!httpStateMode && now - (lastSocketReceived || socketStartedAt) >= 5000 && now - lastSocketRecovery >= 10000) {
+    lastSocketRecovery = now;
+    connect();
+  }
+}
+
 function connect() {
   clearTimeout(retryTimer);
   const previous = socket;
+  if (preferHTTPState) {
+    // iOS can stall the long-lived state socket while ordinary requests keep
+    // succeeding. Use serialized, uncached snapshots on that transport.
+    httpStateMode = true;
+    socket = null;
+    if (previous) previous.close();
+    socketStartedAt = performance.now() - 500;
+    nextStatePoll = 0;
+    reportConnection('http_state');
+    maintainConnection();
+    return;
+  }
   const current = new WebSocket(`${location.protocol === "https:" ? "wss:" : "ws:"}//${location.host}/ws/state`);
   socket = current;
-  connected = false;
+  socketStartedAt = performance.now();
+  lastSocketReceived = 0;
+  connected = Boolean(snapshot && performance.now() - lastReceived < 2000);
   if (previous) previous.close();
   current.addEventListener("open", () => {
-    if (socket !== current || !leaseId) return;
+    if (socket !== current) return;
+    reportConnection('ws_open');
+    if (!leaseId) return;
     haveLease = false;
     renew();
   });
@@ -225,20 +336,12 @@ function connect() {
     if (socket !== current) return;
     let message;
     try { message = JSON.parse(event.data); } catch { return; }
-    if (message.type !== "state" || message.schema_version !== 1) return;
-    if (instanceId !== message.instance_id) {
-      if (instanceId !== null) { clearLease(); loadCatalog(); }
-      instanceId = message.instance_id; sequence = -1;
-    }
-    if (message.sequence <= sequence) return;
-    sequence = message.sequence;
-    snapshot = message; connected = true; lastReceived = performance.now(); snapshotReceivedAt = Date.now(); retryDelay = 1000;
-    if (message.data.configuration?.available && message.data.configuration.revision !== catalog?.revision && performance.now() >= catalogRetryAt) loadCatalog();
-    if (!message.data.simulated && message.data.map.available && message.data.map.revision !== mapMetadata?.revision && performance.now() >= mapRetryAt) loadMap();
-    render();
+    lastSocketReceived = performance.now();
+    acceptState(message);
   });
   current.addEventListener("close", (event) => {
     if (socket !== current) return;
+    reportConnection('ws_close', {code:event.code, detail:event.reason});
     connected = false; render();
     if (event.code === 4401 || event.code === 4403) { showLogin(); return; }
     if (!$("loginDialog").open) {
@@ -246,7 +349,11 @@ function connect() {
       retryDelay = Math.min(10000, retryDelay * 2);
     }
   });
-  current.addEventListener("error", () => current.close());
+  current.addEventListener("error", () => {
+    if (socket !== current) return;
+    reportConnection('ws_error');
+    current.close();
+  });
 }
 
 function svgPoint(pose) {
@@ -381,7 +488,7 @@ function renderMap(data, mission, route) {
 
 function render() {
   const fresh = connected && performance.now() - lastReceived < 2000;
-  $("connection").textContent = fresh ? "实时连接" : "连接中 / 状态过期";
+  $("connection").textContent = fresh ? "实时连接" : connected ? "状态更新延迟" : "连接中 / 状态过期";
   $("connection").className = `connection ${fresh ? "connected" : "offline"}`;
   $("controlTime").textContent = controlTimeText(fresh);
   if (!snapshot) return;
@@ -439,7 +546,7 @@ function render() {
     $("progressMessage").textContent = "当前显示后端配置，机器人实时任务状态未连接。";
   }
   const config = data.configuration;
-  $("dataSyncStatus").textContent = data.simulated ? "示例数据" : !fresh ? "同步连接已断开" : config?.error || config?.write_blocker
+  $("dataSyncStatus").textContent = data.simulated ? "示例数据" : !fresh ? connected ? "状态更新延迟，正在重新同步…" : "同步连接已断开，正在重新连接…" : config?.error || config?.write_blocker
     || (catalog?.revision === config?.revision ? `后端配置已同步 · ${catalog?.waypoints.length || 0} 个导航点` : "正在同步后端配置…");
   $("dataSyncStatus").title = catalog?.files ? Object.values(catalog.files).join("\n") : "";
   editor?.refreshControls(canEdit());
@@ -495,14 +602,30 @@ async function renew() {
   renewal = attempt;
   attempt.promise = (async () => {
     const started = Date.now();
+    const wasVerified = haveLease;
     try {
-      const result = await api("/control/renew", { method: "POST", control: true });
+      let result;
+      for (let retry = 0; retry < 2; retry += 1) {
+        try {
+          result = await api("/control/renew", { method: "POST", control: true, timeoutMs:2500 });
+          break;
+        } catch (error) {
+          if (leaseId !== secret || leaseVersion !== version || $('loginDialog').open) return;
+          haveLease = false;
+          render();
+          if (retry || (error.status && error.status < 500)) throw error;
+          await new Promise(resolve => setTimeout(resolve, 300));
+          if (leaseId !== secret || leaseVersion !== version || $('loginDialog').open || document.hidden) return;
+        }
+      }
       if (leaseId !== secret || leaseVersion !== version) return;
       leaseValidUntil = started + result.remaining_sec * 1000;
       haveLease = !$("loginDialog").open;
+      if (!wasVerified && haveLease) reportConnection('renew_recovered');
     } catch (error) {
       if (leaseId !== secret || leaseVersion !== version) return;
-      if (haveLease) toast("操作权暂未核验，连接恢复后自动重试", true);
+      reportConnection('renew_failed', {code:error.status || 0, detail:error.code || error.name});
+      if (wasVerified) toast("操作权暂未核验，连接恢复后自动重试", true);
       haveLease = false;
     } finally {
       if (renewal === attempt) renewal = null;
@@ -514,12 +637,14 @@ async function renew() {
 
 function resumeControl() {
   if (document.hidden || $("loginDialog").open) return;
+  cancelStatePoll();
   if (leaseId) { haveLease = false; renew(); }
   if (!connected || performance.now() - lastReceived >= 2000) connect();
+  else if (httpStateMode) maintainConnection();
   render();
 }
 document.addEventListener("visibilitychange", () => {
-  if (document.hidden) { haveLease = false; render(); }
+  if (document.hidden) { cancelStatePoll(); haveLease = false; render(); }
   else resumeControl();
 });
 window.addEventListener("online", resumeControl);
@@ -566,5 +691,5 @@ $("mapZoomIn").addEventListener("click", () => zoomMap(0.8));
 $("mapZoomOut").addEventListener("click", () => zoomMap(1.25));
 $("mapFit").addEventListener("click", () => { navigationUI.follow = false; if (mapMetadata) mapView = [0, 0, mapMetadata.width, mapMetadata.height]; render(); });
 setInterval(renew, 5000);
-setInterval(render, 500);
+setInterval(() => { render(); maintainConnection(); }, 500);
 initialize().catch((error) => toast(`连接失败：${error.message}，请刷新后重试`, true));

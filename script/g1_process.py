@@ -64,11 +64,10 @@ def read_records(path):
     return data['processes']
 
 
-def members(record):
-    if record['boot_id'] != boot_id():
-        return []
-    # 启动器及子节点可能各自 setsid；按唯一 token 找到所有后代，再逐组核验。
-    found, snapshots = [], []
+def process_snapshot():
+    """Capture process identities once for a group of read-only observations."""
+    current_boot = boot_id()
+    identities, snapshots = [], []
     for path in Path('/proc').iterdir():
         if not path.name.isdigit():
             continue
@@ -89,8 +88,21 @@ def members(record):
             continue
         if info:
             snapshots.append((info['pid'], info['pgid'], info['token']))
-        if info and info['token'] == record['token']:
-            found.append(info)
+        if info:
+            identities.append(info)
+    return current_boot, identities, snapshots
+
+
+def members(record, snapshot=None):
+    if snapshot is None:
+        if record['boot_id'] != boot_id():
+            return []
+        snapshot = process_snapshot()
+    current_boot, identities, snapshots = snapshot
+    if record['boot_id'] != current_boot:
+        return []
+    # 启动器及子节点可能各自 setsid；按唯一 token 找到所有后代，再逐组核验。
+    found = [info for info in identities if info['token'] == record['token']]
     groups = {item['pgid'] for item in found}
     groups.add(record['pgid'])
     for pid, pgid, token in snapshots:

@@ -1,5 +1,7 @@
 import asyncio
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 import secrets
 import time
 import uuid
@@ -27,6 +29,7 @@ from .journal import CommandJournal
 from .adapters.ros_control import RosControlAdapter
 from .compat import to_thread
 from .cruise import CruiseManager
+from .runtime import process_observation
 
 
 class Payload(BaseModel):
@@ -39,6 +42,14 @@ class Login(Payload):
 
 class LeaseRequest(Payload):
     owner: str = Field(min_length=1, max_length=40, pattern=r".*\S.*")
+
+
+class ConnectionDiagnostic(Payload):
+    event: Literal['state_stale', 'state_recovered', 'ws_open', 'ws_close', 'ws_error',
+                   'renew_failed', 'renew_recovered', 'js_error', 'http_state', 'state_failed']
+    age_ms: float = Field(default=0, ge=0, le=86400000, allow_inf_nan=False)
+    code: int = Field(default=0, ge=0, le=65535)
+    detail: str = Field(default='', max_length=240)
 
 
 class Command(Payload):
@@ -120,6 +131,26 @@ def create_app(settings=None, adapter=None, mapping=None, navigation=None):
     sessions = OrderedDict()
     instance_id = uuid.uuid4().hex
     sequence = 0
+    state_task = None
+    connection_logger = logging.getLogger('g1_web.connection.' + instance_id)
+    connection_logger.setLevel(logging.INFO)
+    connection_logger.propagate = False
+
+    def trace_connection(event, connection, **fields):
+        if settings.mode == 'mock':
+            return
+        try:
+            if not connection_logger.handlers:
+                path = Path(settings.workspace) / 'runtime/web_console/connection.log'
+                path.parent.mkdir(parents=True, exist_ok=True)
+                connection_logger.addHandler(RotatingFileHandler(
+                    path, maxBytes=2 * 1024 * 1024, backupCount=2, encoding='utf-8'))
+            connection_logger.info(json.dumps(dict(
+                time=time.time(), event=event,
+                client=connection.client.host if connection.client else '',
+                agent=connection.headers.get('user-agent', '')[:200], **fields), ensure_ascii=False))
+        except OSError:
+            logging.getLogger(__name__).exception('Unable to write connection diagnostics')
 
     @asynccontextmanager
     async def lifespan(app):
@@ -129,9 +160,15 @@ def create_app(settings=None, adapter=None, mapping=None, navigation=None):
             await robot.start()
             yield
         finally:
+            if state_task is not None and not state_task.done():
+                state_task.cancel()
+                await asyncio.gather(state_task, return_exceptions=True)
             await navigator.close()
             await mapper.close()
             await robot.close()
+            for handler in list(connection_logger.handlers):
+                connection_logger.removeHandler(handler)
+                handler.close()
 
     app = FastAPI(title="G1 Web Gateway · 框架", version="0.1.0", lifespan=lifespan,
                   docs_url=None, redoc_url=None, openapi_url=None)
@@ -140,6 +177,16 @@ def create_app(settings=None, adapter=None, mapping=None, navigation=None):
     app.state.mapping = mapper
     app.state.navigation = navigator
     app.state.cruise = cruise
+
+    @app.middleware('http')
+    async def trace_requests(request, call_next):
+        started = time.monotonic()
+        response = await call_next(request)
+        elapsed = time.monotonic() - started
+        if request.url.path.startswith('/api/v1/control/') or request.url.path == '/api/v1/state' or elapsed >= 1:
+            trace_connection('http', request, path=request.url.path, status=response.status_code,
+                             elapsed_ms=round(elapsed * 1000, 1))
+        return response
 
     @app.exception_handler(GatewayError)
     async def gateway_error(request, exc):
@@ -165,13 +212,13 @@ def create_app(settings=None, adapter=None, mapping=None, navigation=None):
         if not authenticated(request):
             raise GatewayError(401, "AUTH_REQUIRED", "请输入访问口令")
 
-    async def state():
+    async def build_state():
         nonlocal sequence
-        data = await robot.snapshot()
-        mapping_state = await mapper.snapshot()
+        with process_observation():
+            data, mapping_state, cruise_state, lifecycle = await asyncio.gather(
+                robot.snapshot(), mapper.snapshot(), cruise.snapshot(), navigator.snapshot())
         data['mapping'] = mapping_state
-        data['cruise'] = await cruise.snapshot()
-        lifecycle = await navigator.snapshot()
+        data['cruise'] = cruise_state
         data.setdefault('navigation', {}).update(lifecycle=lifecycle)
         data['capabilities']['navigation_control'] = navigator.enabled
         data['capabilities']['mapping_control'] = mapping_state['available']
@@ -190,9 +237,23 @@ def create_app(settings=None, adapter=None, mapping=None, navigation=None):
                 "sequence": sequence, "server_time": time.time(),
                 "data": dict(data, mode=settings.mode, control=lease.snapshot())}
 
+    async def state():
+        nonlocal state_task
+        # Multiple viewers and HTTP recovery share the same in-flight inspection.
+        # A completed result is never reused as a newly sampled state.
+        if state_task is None or state_task.done():
+            state_task = asyncio.create_task(build_state())
+        return await asyncio.shield(state_task)
+
     @app.get("/api/v1/health")
     async def health():
         return {"ok": True, "mode": settings.mode, "schema_version": 1}
+
+    @app.post('/api/v1/diagnostics/connection', dependencies=[Depends(auth)])
+    async def connection_diagnostic(payload: ConnectionDiagnostic, request: Request):
+        trace_connection('browser.' + payload.event, request, age_ms=payload.age_ms,
+                         code=payload.code, detail=payload.detail)
+        return Response(status_code=204)
 
     @app.get("/api/v1/session")
     async def session(request: Request):
@@ -225,7 +286,7 @@ def create_app(settings=None, adapter=None, mapping=None, navigation=None):
 
     @app.get("/api/v1/state", dependencies=[Depends(auth)])
     async def get_state():
-        return await state()
+        return JSONResponse(await state(), headers={'Cache-Control': 'no-store'})
 
     @app.get("/api/v1/catalog", dependencies=[Depends(auth)])
     async def catalog():
@@ -475,16 +536,36 @@ def create_app(settings=None, adapter=None, mapping=None, navigation=None):
             await websocket.close(code=4401)
             return
         await websocket.accept()
+        started = last_sent = last_summary = time.monotonic()
+        frames, max_gap, close_code = 0, 0.0, 1000
+        trace_connection('ws_open', websocket)
         try:
             while authenticated(websocket):
-                await asyncio.wait_for(websocket.send_json(await state()), timeout=2.0)
+                message = await state()
+                await asyncio.wait_for(websocket.send_json(message), timeout=2.0)
+                now = time.monotonic()
+                frames += 1
+                max_gap = max(max_gap, now - last_sent)
+                last_sent = now
+                if now - last_summary >= 15:
+                    trace_connection('ws_summary', websocket, frames=frames,
+                                     max_gap_ms=round(max_gap * 1000, 1))
+                    last_summary = now
                 try:
                     await asyncio.wait_for(websocket.receive_text(), timeout=0.5)
                 except asyncio.TimeoutError:
                     pass
             await websocket.close(code=4401)
-        except (WebSocketDisconnect, asyncio.TimeoutError):
-            pass
+        except WebSocketDisconnect as exc:
+            close_code = exc.code
+        except asyncio.TimeoutError:
+            close_code = 1013
+            trace_connection('ws_send_timeout', websocket)
+            await websocket.close(code=close_code)
+        finally:
+            trace_connection('ws_close', websocket, code=close_code, frames=frames,
+                             duration_ms=round((time.monotonic() - started) * 1000, 1),
+                             max_gap_ms=round(max_gap * 1000, 1))
 
     frontend = Path(__file__).resolve().parents[2] / "frontend"
     app.mount("/", StaticFiles(directory=str(frontend), html=True), name="frontend")
