@@ -9,33 +9,40 @@ P6 已迁入上游固定版本 `afaf7bc5daefc98cfa045c0b50d05e17b7ac2053` 的前
 ```bash
 /usr/bin/python3 -m venv --system-site-packages web_console/.venv
 web_console/.venv/bin/python -m pip install --require-hashes -r web_console/requirements.txt
-bash web_console/run.sh
+cd web_console
+./run.sh
 ```
 
-访问 http://127.0.0.1:8080 。默认 local 模式读取当前工作空间文件。启动器加载 P1 公共配置；ROS 模式额外加载 Foxy 和 PC2 install。虚拟环境必须使用系统 `/usr/bin/python3`，以便访问相同版本的系统 rclpy。不要复制开发电脑的虚拟环境。
+启动后按提示输入网页访问口令 `web_token`（隐藏输入，不能为空），脚本自动导出环境变量，以 `ros_control` 模式监听 `0.0.0.0:8080`。终端会列出 PC2 本机和其他设备可访问的网卡/IP 地址，过滤 Docker 等虚拟网卡；脚本不自动打开浏览器。其他设备使用与 PC2 网络互通的地址访问并输入相同口令登录。IP 每次启动重新检测。
+
+启动器加载 P1 公共配置；ROS 模式额外加载 Foxy 和 PC2 install。虚拟环境必须使用系统 `/usr/bin/python3`，以便访问相同版本的系统 rclpy。不要复制开发电脑的虚拟环境。
 
 运行依赖及全部传递依赖在 `requirements.txt` 固定版本和 SHA-256，由 `requirements.in` 按 Python 3.8/aarch64 解析生成。开发依赖的完整锁为 `requirements-dev-pc2.txt`；`requirements-dev.txt` 为开发依赖输入。
 
 | 模式 | 数据与配置 | 建图管理 | 运动/任务 |
 | --- | --- | --- | --- |
-| local（默认） | 实际地图/航点/任务，支持写入 | 显式调用 CLI，无 ROS 点云预览 | 禁用 |
+| local | 实际地图/航点/任务，支持写入 | 显式调用 CLI，无 ROS 点云预览 | 禁用 |
 | mock | 内置示例，独立于现场文件 | 禁用 | 五站模拟、模拟单点和取消/放行 |
 | ros_readonly | 实际文件、定位、路径、位姿与任务遥测 | 显式调用 CLI，含点云预览 | 只读 |
-| ros_control | 同上 | 同上 | 导航准备、人工初值、单点、讲解任务、连续巡航 |
+| ros_control（默认） | 同上 | 同上 | 导航准备、人工初值、单点、讲解任务、连续巡航 |
 
 local 和 ros_readonly 都允许配置编辑、建图生命周期操作。“只读”指运动和任务控制通道。
 
-局域网/ROS 模式需要访问口令：
+日常启动只需在 `web_console/` 中执行 `./run.sh`，无需手动执行 `read`、`export` 或填写监听/模式变量。口令仅传给本次进程，不写入脚本或文件；已导出 `G1_WEB_TOKEN` 时复用且不重复询问。非交互启动必须预设口令（需要口令的模式）。
+
+在工作空间根目录仍可显式覆盖模式、监听地址和端口：
 
 ```bash
-read -rs -p '网页访问口令: ' G1_WEB_TOKEN
-export G1_WEB_TOKEN
-G1_WEB_HOST=0.0.0.0 G1_WEB_MODE=ros_readonly bash web_console/run.sh
-# 完成现场准备后，显式选择控制模式：
-# G1_WEB_HOST=0.0.0.0 G1_WEB_MODE=ros_control bash web_console/run.sh
+# ROS 只读：仍会提示输入口令，并显示局域网访问地址
+G1_WEB_MODE=ros_readonly bash web_console/run.sh
+# 本机 local/mock 无需口令，不加载 ROS
+G1_WEB_MODE=local bash web_console/run.sh
+G1_WEB_MODE=mock bash web_console/run.sh
+# 8080 已占用时，先在原终端 Ctrl+C 停止旧网页，或另选端口
+G1_WEB_PORT=8081 bash web_console/run.sh
 ```
 
-其他设备访问 `http://PC2的可达IP:8080`。只体验模拟界面可执行 `G1_WEB_MODE=mock bash web_console/run.sh`。
+启动器不自动停止或替换已运行的网页服务；端口冲突时显示提示并退出。网页服务保持前台运行，`Ctrl+C` 停止。启动网页本身不等于启动导航、任务或运动桥。
 
 ## 文件和操作权
 

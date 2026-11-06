@@ -151,25 +151,33 @@ bash script/g1_cruise.sh stop
 
 ### 5. 网页控制台
 
-使用 PC2 的系统 Python 安装并启动：
+首次使用时，在仓库根目录用 PC2 的系统 Python 安装依赖：
 
 ```bash
 /usr/bin/python3 -m venv --system-site-packages web_console/.venv
 web_console/.venv/bin/python -m pip install --require-hashes -r web_console/requirements.txt
-bash web_console/run.sh
 ```
 
-浏览器访问 **http://127.0.0.1:8080**。默认 `local` 模式可查看地图、编辑航点与任务配置；`mock` 模式可体验模拟界面。
-
-需要通过局域网查看 ROS 状态或控制机器人时，设置访问口令与运行模式：
+日常启动只需：
 
 ```bash
-read -rs -p '网页访问口令: ' G1_WEB_TOKEN
-export G1_WEB_TOKEN
-G1_WEB_HOST=0.0.0.0 G1_WEB_MODE=ros_control bash web_console/run.sh
+cd web_console
+./run.sh
 ```
 
-手机或其他电脑访问 `http://PC2的IP:8080`，输入口令并获取操作权。`ros_control` 支持导航、任务和巡航控制；只查看 ROS 状态时使用 `ros_readonly`，该模式仍允许配置编辑和建图管理。详细操作见 [网页使用说明](web_console/README.md)。
+按提示输入网页访问口令 `web_token`（输入隐藏，不能为空），脚本自动设置环境变量，以 `ros_control` 模式监听 `0.0.0.0:8080`。无需手动执行 `read` 或 `export`；若已导出 `G1_WEB_TOKEN`，则直接复用。
+
+终端会自动显示 PC2 本机及其他设备可访问的 Wi-Fi、有线网地址；IP 以每次启动输出为准。手机或其他电脑使用网络互通的地址打开页面，输入相同口令并获取操作权。**PC2 不会自动打开浏览器。** 服务在当前终端前台运行，按 `Ctrl+C` 停止；端口占用时提示退出，不自动停止旧服务。
+
+需要切换模式时，在仓库根目录执行：
+
+```bash
+G1_WEB_MODE=ros_readonly bash web_console/run.sh  # ROS 状态查看，仍提示输入口令
+G1_WEB_MODE=local bash web_console/run.sh         # 本机地图、航点和任务配置
+G1_WEB_MODE=mock bash web_console/run.sh          # 本机模拟界面
+```
+
+`ros_control` 支持导航、任务和巡航控制；启动网页本身不会自动启动导航或运动。详细操作及端口覆盖方式见 [网页使用说明](web_console/README.md)。
 
 ## 运行展示
 
