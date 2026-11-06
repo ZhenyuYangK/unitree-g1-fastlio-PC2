@@ -83,7 +83,10 @@ def verify_ros(expected, timeout, enable=False):
             node.destroy_client(client)
 
     try:
-        for name in ('controller_server', 'planner_server', 'recoveries_server', 'bt_navigator'):
+        lifecycle_nodes = ['controller_server', 'planner_server', 'recoveries_server', 'bt_navigator']
+        if 'g1_navigation_guard' in expected:
+            lifecycle_nodes.append('g1_reference/planner_server')
+        for name in lifecycle_nodes:
             state = request(GetState, '/' + name + '/get_state', GetState.Request()).current_state
             if state.id != 3:
                 raise ValueError(name + ' 不是 active')

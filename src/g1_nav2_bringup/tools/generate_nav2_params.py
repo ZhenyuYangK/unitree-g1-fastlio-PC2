@@ -71,6 +71,9 @@ def bridge_parameters(source, navigation, mode):
     params = node_params(data, 'g1_cmd_vel_dry_run')
     follow = node_params(navigation, 'controller_server')['FollowPath']
     params.update(
+        require_navigation_permit=True,
+        navigation_permit_topic='/g1_navigation/status',
+        navigation_permit_timeout_sec=0.3,
         dry_run=mode == 'dry', require_localization=True,
         cmd_vel_topic='/cmd_vel_nav', allow_reverse=False, allow_lateral=False,
         enable_service_name='/g1_loco_bridge/enable' + ('_real_nav' if mode == 'real' else ''),
@@ -114,6 +117,8 @@ def generate(source, output, profile='safe', bridge_sources=None, manifest=None)
         'input_topic': '/Odometry', 'output_topic': '/Odometry_nav',
         'body_frame': 'body', 'navigation_frame': 'nav_base',
         'body_to_nav_rotation_xyzw': [1.0, 0.0, 0.0, 0.0], 'use_sim_time': False}
+    expected['g1_navigation_guard'] = {
+        'extra_distance_m': 10.0, 'speech_delay_sec': 1.0, 'clear_hold_sec': 2.0}
     destinations = [p.resolve() for p, _ in documents.values()]
     if len(set(destinations)) != len(destinations):
         raise ValueError('Output files must differ')

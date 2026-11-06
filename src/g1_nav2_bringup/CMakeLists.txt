@@ -5,6 +5,17 @@ find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(nav_msgs REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(nav2_behavior_tree REQUIRED)
+find_package(nav2_msgs REQUIRED)
+find_package(behaviortree_cpp_v3 REQUIRED)
+find_package(rclcpp_action REQUIRED)
+
+add_library(g1_guarded_navigate_bt_node SHARED src/guarded_navigate_action.cpp)
+target_compile_features(g1_guarded_navigate_bt_node PUBLIC cxx_std_14)
+target_compile_definitions(g1_guarded_navigate_bt_node PRIVATE BT_PLUGIN_EXPORT)
+ament_target_dependencies(g1_guarded_navigate_bt_node
+  rclcpp rclcpp_action nav_msgs nav2_msgs nav2_behavior_tree behaviortree_cpp_v3)
+install(TARGETS g1_guarded_navigate_bt_node LIBRARY DESTINATION lib)
 
 add_executable(navigation_odometry src/navigation_odometry.cpp)
 target_compile_features(navigation_odometry PUBLIC cxx_std_14)
@@ -31,6 +42,25 @@ if(BUILD_TESTING)
   find_package(g1_loco_bridge REQUIRED)
   get_filename_component(G1_BRIDGE_PREFIX "${g1_loco_bridge_DIR}/../../.." ABSOLUTE)
   find_package(Python3 REQUIRED COMPONENTS Interpreter)
+  ament_add_test(test_navigation_action_client_race
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/../g1_task_manager/test/action_client_ros_smoke.py
+    ENV "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/../g1_task_manager:$ENV{PYTHONPATH}"
+      ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/test_action_sync_logs
+    TIMEOUT 90)
+  ament_add_test(test_navigation_guard_coordinator
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/../g1_task_manager/test/nav_guard_ros_smoke.py
+    ENV "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/../g1_task_manager:$ENV{PYTHONPATH}"
+      ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/test_guard_ros_logs
+    TIMEOUT 90)
+  ament_add_test(test_navigation_guard_stack
+    GENERATE_RESULT_FOR_RETURN_CODE_ZERO
+    COMMAND ${Python3_EXECUTABLE}
+      ${CMAKE_CURRENT_SOURCE_DIR}/test/nav_guard_stack_smoke.py
+    TIMEOUT 90)
   ament_add_test(test_navigation_odometry_node
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test/test_navigation_odometry_node.py

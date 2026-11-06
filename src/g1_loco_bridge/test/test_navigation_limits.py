@@ -1,6 +1,7 @@
 """Measure configured limits and slew rates through the actual DryRunBackend."""
 import argparse
 import importlib.util
+import json
 import os
 from pathlib import Path
 import re
@@ -21,6 +22,7 @@ os.environ.pop('CYCLONEDDS_URI', None)
 
 import rclpy
 from geometry_msgs.msg import Twist
+from std_msgs.msg import String
 from std_srvs.srv import SetBool
 import yaml
 
@@ -39,6 +41,7 @@ class NavigationLimitsTest(unittest.TestCase):
         self.addCleanup(self.cleanup)
         os.environ['ROS_LOG_DIR'] = str(self.path / 'ros_logs')
         self.logs = []
+        self.permit = None
         self.profile = 'target' if 'target' in self._testMethodName else 'safe'
         self.cap = 1.0 if self.profile == 'target' else 0.2
         nav = generator.navigation_parameters(generator.load_yaml(ROOT / 'src/g1_nav2_bringup/config/nav2_params.yaml'), self.profile)
@@ -47,11 +50,13 @@ class NavigationLimitsTest(unittest.TestCase):
         # Standalone bench checks need no localization. P2 and the readiness
         # integration suite independently exercise the mandatory navigation guard.
         params.update(cmd_vel_topic='/limits_test/cmd', enable_service_name='/limits_test/enable',
-                      require_localization=False, report_period_sec=0.05)
+                      require_localization=False, report_period_sec=0.05,
+                      require_navigation_permit='navigation_permit' in self._testMethodName)
         (self.path / 'config.yaml').write_text(yaml.safe_dump(config))
         rclpy.init()
         self.node = rclpy.create_node('limits_test')
         self.publisher = self.node.create_publisher(Twist, '/limits_test/cmd', 10)
+        self.status = self.node.create_publisher(String, '/g1_navigation/status', 1)
         self.client = self.node.create_client(SetBool, '/limits_test/enable')
         self.process = subprocess.Popen([ARGS.bridge, '--ros-args', '--params-file', str(self.path / 'config.yaml')],
             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
@@ -70,6 +75,11 @@ class NavigationLimitsTest(unittest.TestCase):
     def pump(self, duration, command=None):
         deadline = time.monotonic() + duration
         while time.monotonic() < deadline:
+            if self.permit is not None:
+                self.status.publish(String(data=json.dumps(dict(
+                    schema='G1_NAVIGATION_WAIT_V1', active=True,
+                    state='MOVING' if self.permit else 'BLOCKED', permit=self.permit,
+                    stamp_ns=self.node.get_clock().now().nanoseconds))))
             if command is not None:
                 self.publisher.publish(command)
             rclpy.spin_once(self.node, timeout_sec=0.02)
@@ -119,6 +129,34 @@ class NavigationLimitsTest(unittest.TestCase):
 
     def test_target_profile_limits_acceleration_deceleration_and_axis_gates(self):
         self.exercise_profile()
+
+    def test_navigation_permit_stops_immediately_and_discards_probe_commands(self):
+        command = Twist()
+        command.linear.x = .2
+        self.permit = True
+        self.pump(1.5, command)
+        self.assertGreater(self.samples()[-1][1], .15, ''.join(self.logs))
+        start = len(self.logs)
+        self.permit = False
+        self.pump(.15, command)
+        self.assertIn('zero state: navigation permit withheld or stale', ''.join(self.logs[start:]))
+        self.permit = True
+        start = len(self.logs)
+        self.pump(.2)  # Restoring permission must not replay cached probe Twist.
+        self.assertTrue(all(s[1] == 0. for s in self.samples(start)), ''.join(self.logs[start:]))
+        self.pump(.4, command)
+        self.assertGreater(self.samples()[-1][1], .01)
+        start = len(self.logs)
+        self.permit = None  # Continue fresh Twist but lose guard heartbeat.
+        self.pump(.5, command)
+        self.assertIn('zero state: navigation permit withheld or stale', ''.join(self.logs[start:]))
+        self.permit = True
+        future = self.client.call_async(SetBool.Request(data=False))
+        rclpy.spin_until_future_complete(self.node, future, timeout_sec=3)
+        self.assertTrue(future.result().success)
+        start = len(self.logs)
+        self.pump(.4, command)
+        self.assertTrue(all(s[1] == 0. for s in self.samples(start)), ''.join(self.logs[start:]))
 
     def cleanup(self):
         if self.process and self.process.poll() is None:

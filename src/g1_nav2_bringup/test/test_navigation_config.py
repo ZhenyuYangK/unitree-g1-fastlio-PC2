@@ -81,10 +81,19 @@ class NavigationConfigTest(unittest.TestCase):
         self.assertIn('goal_checker_plugin', nav['controller_server']['ros__parameters'])
         self.assertEqual(nav['recoveries_server']['ros__parameters']['recovery_plugins'], ['spin', 'wait'])
         tree = ET.parse(PACKAGE / 'behavior_trees/navigate_g1_timeout.xml')
-        self.assertIsNotNone(tree.find('.//SequenceStar'))
+        self.assertIsNone(tree.find('.//Spin'))
+        self.assertIsNone(tree.find('.//ClearEntireCostmap'))
         self.assertIsNone(tree.find('.//BackUp'))
-        for tag in ('ComputePathToPose', 'FollowPath', 'Spin', 'Wait'):
-            self.assertEqual(tree.find('.//' + tag).get('server_timeout'), '1000')
+        self.assertEqual(tree.find('.//G1GuardedNavigate').get('server_timeout'), '1000')
+        self.assertIn('g1_guarded_navigate_bt_node', nav['bt_navigator']['ros__parameters']['plugin_lib_names'])
+        live = nav['global_costmap']['global_costmap']['ros__parameters']
+        self.assertEqual(live['plugins'], ['static_layer', 'obstacle_layer', 'inflation_layer'])
+        self.assertEqual(live['obstacle_layer']['cloud']['topic'], '/cloud_registered_body')
+        reference = generator.load_yaml(PACKAGE / 'config/reference_planner.yaml')['g1_reference']
+        static = reference['global_costmap']['global_costmap']['ros__parameters']
+        for key in ('robot_radius', 'resolution', 'inflation_layer'):
+            self.assertEqual(static[key], live[key])
+        self.assertNotIn('obstacle_layer', static['plugins'])
         for name in ('controller_server', 'bt_navigator'):
             self.assertEqual(nav[name]['ros__parameters']['odom_topic'], '/Odometry_nav')
 

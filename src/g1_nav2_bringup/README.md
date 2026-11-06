@@ -7,7 +7,7 @@ Planning-only Nav2 bringup for the current G1 FAST-LIO project.
 - FAST-LIO frame: `body`
 - navigation base: `nav_base` (static 180-degree X correction from `body`)
 - odometry topic: `/Odometry_nav` (converted from FAST-LIO `/Odometry`)
-- local obstacle source: `/cloud_registered_body`
+- local and global obstacle source: `/cloud_registered_body`
 - isolated velocity output: `/cmd_vel_nav`
 
 This package intentionally does not connect velocity output to Unitree SDK2.
@@ -21,9 +21,17 @@ navigation origin requires a lever-arm velocity/covariance model, not a renamed
 frame. Recheck signs after changing the lidar mounting or IMU extrinsics.
 
 The launch and configuration target **Foxy**: `nav2_recoveries/recoveries_server`,
-singular `goal_checker_plugin`, `default_bt_xml_filename`, and the `SequenceStar`
-BT node. The recovery tree uses spin/wait and costmap clearing without backup.
-Recovery TF uses `camera_init` and `transform_tolerance`, matching the local map.
+singular `goal_checker_plugin` and `default_bt_xml_filename`.
+The `G1GuardedNavigate` BT action delegates planning and DWB ownership to
+`g1_navigation_guard`. A static-only reference planner freezes the original route
+budget; travelled distance plus a replacement route may exceed it by at most 10 m.
+When no allowed route is executable, navigation stops and waits. A confirmed
+one-second blockage requests one Chinese reminder; two continuous clear seconds
+release the same goal. No spin or costmap-clearing recovery runs during this wait.
+Confirmed obstacle waiting is excluded from task navigation timeouts. Narration,
+pause and stop cancel the navigation leg and cannot generate a delayed reminder.
+Generated bridge parameters require a fresh navigation permit (0.3 s timeout)
+in addition to the existing manual and localization gates.
 Both controller and BT navigator consume `/Odometry_nav`.
 
 The source YAML describes the target limits: 1.0 m/s forward, 0.40 rad/s yaw,
@@ -42,6 +50,7 @@ Changing `G1_NAV_PROFILE` requires stopping and restarting the navigation stack;
 reusing a different running profile is rejected. Direct use of source bridge
 YAML selects the target limits.
 
-The local P4 acceptance record is `docs/migration/P4_ACCEPTANCE.md`. Host tests use
-Humble/x86_64, synthetic inputs and DryRunBackend. Foxy/aarch64 compilation and
-real forward/turn signs and navigation remain PC2 acceptance steps.
+The obstacle-wait software checks run on Foxy/aarch64 using an isolated DDS domain,
+synthetic sensors, real NavFn/DWB/BT nodes and a mock speaker. Motion bridge checks
+use DryRunBackend. Physical clearance, braking and audible speech still require
+on-robot acceptance. Earlier P4 records remain in `docs/migration/P4_ACCEPTANCE.md`.

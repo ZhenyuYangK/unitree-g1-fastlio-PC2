@@ -179,6 +179,9 @@ class MissionTransport(MissionProgress):
         goal.pose.pose.position.y = float(pose['y'])
         goal.pose.pose.orientation.z = math.sin(pose['yaw'] / 2.0)
         goal.pose.pose.orientation.w = math.cos(pose['yaw'] / 2.0)
+        self.navigation_pose = goal.pose
+        self.navigation_sent_ns = self.node.get_clock().now().nanoseconds
+        self.navigation_error = ''
         self.goal_id = UUID(uuid=list(uuid.uuid4().bytes))
         self.handle = None
         self.result_future = None
@@ -201,10 +204,27 @@ class MissionTransport(MissionProgress):
         self._gate(True)
 
     def wait_result(self, timeout):
-        result = self._wait(self.result_future, timeout)
+        # An obstacle wait may be indefinite. Charge only fresh status for this
+        # exact target; RPC/fault/normal driving timeouts remain unchanged.
+        elapsed = 0.0
+        previous = time.monotonic()
+        while not self.result_future.done():
+            self._spin(.05)
+            now = time.monotonic()
+            waiting = getattr(self.node, 'obstacle_waiting', lambda *_: False)(
+                self.navigation_pose, self.navigation_sent_ns)
+            if not waiting:
+                elapsed += now - previous
+            previous = now
+            if elapsed > timeout:
+                raise MissionError('导航任务超时（不含已确认受阻等待）')
+        result = self.result_future.result()
         if result is None:
             raise MissionError('Nav2结果为空')
-        return STATUS_NAMES.get(result.status, 'UNKNOWN')
+        status = STATUS_NAMES.get(result.status, 'UNKNOWN')
+        self.navigation_error = (getattr(self.node, 'navigation_failure_reason', lambda *_: '')(
+            self.navigation_pose, self.navigation_sent_ns) if status == 'ABORTED' else '')
+        return status
 
     def dwell(self, seconds):
         print('[INFO] 安全门关闭，停留{:.1f}秒'.format(seconds), flush=True)

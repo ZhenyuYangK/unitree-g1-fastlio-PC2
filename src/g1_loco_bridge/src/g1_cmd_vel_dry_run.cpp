@@ -46,6 +46,11 @@ public:
       "localization_status_timeout_sec", 1.0);
     localization_success_timeout_sec_ = declare_safety_parameter<double>(
       "localization_success_timeout_sec", 3.0);
+    require_navigation_permit_ = declare_safety_parameter<bool>("require_navigation_permit", false);
+    navigation_permit_topic_ = declare_safety_parameter<std::string>(
+      "navigation_permit_topic", "/g1_navigation/status");
+    navigation_permit_timeout_sec_ = declare_safety_parameter<double>(
+      "navigation_permit_timeout_sec", 0.3);
 
     allow_reverse_ = declare_safety_parameter<bool>(
       "allow_reverse",
@@ -170,6 +175,12 @@ public:
         get_logger(), "Localization guard REQUIRED: %s, status timeout %.2f s, "
         "successful scan timeout %.2f s.", localization_status_topic_.c_str(),
         localization_status_timeout_sec_, localization_success_timeout_sec_);
+    }
+
+    if (require_navigation_permit_) {
+      navigation_subscription_ = create_subscription<std_msgs::msg::String>(
+        navigation_permit_topic_, rclcpp::QoS(1).reliable(),
+        std::bind(&G1CmdVelDryRun::navigation_callback, this, std::placeholders::_1));
     }
 
     enable_service_ =
@@ -517,6 +528,10 @@ private:
     }
     require_positive("localization_status_timeout_sec", localization_status_timeout_sec_);
     require_positive("localization_success_timeout_sec", localization_success_timeout_sec_);
+    require_positive("navigation_permit_timeout_sec", navigation_permit_timeout_sec_);
+    if (navigation_permit_topic_.empty()) {
+      reject("navigation_permit_topic must not be empty.");
+    }
 
     require_positive(
       "command_timeout_sec",
@@ -802,6 +817,9 @@ private:
     const geometry_msgs::msg::Twist::SharedPtr message)
   {
     enforce_localization_guard();
+    if (!enforce_navigation_permit()) {
+      return;
+    }
     if (!twist_is_finite(*message)) {
       {
         std::lock_guard<std::mutex> lock(data_mutex_);
@@ -1030,6 +1048,9 @@ private:
   void control_callback()
   {
     enforce_localization_guard();
+    if (!enforce_navigation_permit()) {
+      return;
+    }
     geometry_msgs::msg::Twist raw_snapshot;
     geometry_msgs::msg::Twist target_snapshot;
     geometry_msgs::msg::Twist output_snapshot;
@@ -1172,6 +1193,69 @@ private:
         output_snapshot.angular.z);
     }
   }
+
+  // This interlock never opens a manual/backend safety gate. Withholding or
+  // losing the permit stops ahead of normal slew/minimum-speed processing.
+  bool enforce_navigation_permit()
+  {
+    bool stop = false;
+    bool valid = true;
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      if (require_navigation_permit_) {
+        const auto age = std::chrono::duration<double>(
+          std::chrono::steady_clock::now() - navigation_receive_time_).count();
+        const int64_t now = get_clock()->now().nanoseconds();
+        valid = navigation_permit_ && age >= 0 && age <= navigation_permit_timeout_sec_ &&
+          navigation_stamp_ns_ > 0 && now >= navigation_stamp_ns_ &&
+          static_cast<double>(now - navigation_stamp_ns_) * 1e-9 <= navigation_permit_timeout_sec_;
+        if (!valid) {
+          stop = !navigation_stopped_ || command_received_;
+          navigation_stopped_ = true;
+          force_zero_locked();
+        } else {
+          navigation_stopped_ = false;
+        }
+      }
+    }
+    if (stop && backend_) {
+      backend_->request_stop("navigation permit withheld or stale");
+    }
+    return valid;
+  }
+
+  void navigation_callback(const std_msgs::msg::String::SharedPtr message)
+  {
+    const auto status = nlohmann::json::parse(message->data, nullptr, false);
+    int64_t stamp = 0;
+    bool permit = false;
+    if (status.is_object() && status.contains("schema") && status["schema"].is_string() &&
+      status["schema"].get<std::string>() == "G1_NAVIGATION_WAIT_V1" &&
+      status.contains("permit") && status["permit"].is_boolean() &&
+      status.contains("active") && status["active"].is_boolean() &&
+      status.contains("state") && status["state"].is_string() &&
+      read_stamp_ns(status, "stamp_ns", stamp))
+    {
+      permit = status["permit"].get<bool>() && status["active"].get<bool>() &&
+        status["state"].get<std::string>() == "MOVING";
+    }
+    {
+      std::lock_guard<std::mutex> lock(data_mutex_);
+      navigation_permit_ = permit;
+      navigation_stamp_ns_ = stamp;
+      navigation_receive_time_ = std::chrono::steady_clock::now();
+    }
+    enforce_navigation_permit();
+  }
+
+  bool require_navigation_permit_{false};
+  bool navigation_permit_{false};
+  bool navigation_stopped_{true};
+  std::string navigation_permit_topic_;
+  double navigation_permit_timeout_sec_{0.3};
+  int64_t navigation_stamp_ns_{0};
+  std::chrono::steady_clock::time_point navigation_receive_time_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr navigation_subscription_;
 
   std::string cmd_vel_topic_;
   std::string enable_service_name_;

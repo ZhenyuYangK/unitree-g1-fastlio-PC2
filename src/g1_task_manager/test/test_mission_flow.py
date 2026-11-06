@@ -118,6 +118,18 @@ def release_current_wait(transport):
 
 
 class MissionFlowTest(unittest.TestCase):
+    def test_coordinator_failure_detail_reaches_report_without_changing_status(self):
+        transport = RecordingTransport()
+        transport.navigation_error = '上一导航目标停止尚未确认'
+        transport.wait_result = lambda _: 'ABORTED'
+        with contextlib.redirect_stdout(io.StringIO()):
+            report = execute_mission(tour(1), transport, lambda _: None)
+        self.assertEqual(report['steps'][0]['navigation_state'], 'ABORTED')
+        self.assertEqual(report['steps'][0]['navigation_error'], transport.navigation_error)
+        self.assertIn(transport.navigation_error, report['errors'][0])
+        self.assertTrue(report['gate_closed'])
+        self.assertTrue(report['goals_terminal'])
+
     def assert_safe_cleanup(self, transport, report, state):
         self.assertEqual(report['state'], state)
         self.assertTrue(report['gate_closed'])

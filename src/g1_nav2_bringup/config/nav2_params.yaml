@@ -53,8 +53,8 @@ bt_navigator:
     enable_groot_monitoring: true
     groot_zmq_publisher_port: 1666
     groot_zmq_server_port: 1667
-    default_bt_xml_filename: ''
     plugin_lib_names:
+    - g1_guarded_navigate_bt_node
     - nav2_compute_path_to_pose_action_bt_node
     - nav2_follow_path_action_bt_node
     - nav2_back_up_action_bt_node
@@ -103,6 +103,7 @@ controller_server:
     FollowPath:
       plugin: dwb_core::DWBLocalPlanner
       debug_trajectory_details: true
+      publish_evaluation: true
       min_vel_x: 0.0
       min_vel_y: 0.0
       max_vel_x: 1.0
@@ -220,17 +221,19 @@ global_costmap:
       track_unknown_space: true
       plugins:
       - static_layer
+      - obstacle_layer
       - inflation_layer
       obstacle_layer:
         plugin: nav2_costmap_2d::ObstacleLayer
         enabled: true
-        observation_sources: scan
-        scan:
-          topic: /scan
-          max_obstacle_height: 2.0
+        observation_sources: cloud
+        cloud:
+          topic: /cloud_registered_body
+          min_obstacle_height: -0.8
+          max_obstacle_height: 0.8
           clearing: true
           marking: true
-          data_type: LaserScan
+          data_type: PointCloud2
       static_layer:
         plugin: nav2_costmap_2d::StaticLayer
         map_subscribe_transient_local: true

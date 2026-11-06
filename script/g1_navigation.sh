@@ -375,7 +375,7 @@ PY
 }
 
 wait_nav2_active() {
-  local nodes=(controller_server planner_server recoveries_server bt_navigator)
+  local nodes=(controller_server planner_server recoveries_server bt_navigator g1_reference/planner_server)
   local node state
 
   for node in "${nodes[@]}"; do

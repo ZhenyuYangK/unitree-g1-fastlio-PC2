@@ -99,6 +99,30 @@ class Nav2WaypointClient(Node):
 
         self.active_goal_handle = None
         self.last_feedback_time = 0.0
+        self.guard_status = None
+        self.guard_received = 0.0
+        self.guard_subscription = self.create_subscription(
+            String, '/g1_navigation/status', self._guard_callback, 1)
+
+    def _guard_callback(self, message):
+        import json
+        try:
+            status = json.loads(message.data)
+            if not isinstance(status, dict) or status.get('schema') != 'G1_NAVIGATION_WAIT_V1':
+                status = None
+        except (ValueError, TypeError):
+            status = None
+        self.guard_status, self.guard_received = status, time.monotonic()
+
+    def obstacle_waiting(self, pose, sent_ns):
+        from .nav_guard_policy import waiting_for_this_goal
+        return waiting_for_this_goal(self.guard_status, time.monotonic() - self.guard_received,
+                                     sent_ns, pose)
+
+    def navigation_failure_reason(self, pose, sent_ns):
+        from .nav_guard_policy import failure_for_this_goal
+        return failure_for_this_goal(self.guard_status, time.monotonic() - self.guard_received,
+                                     sent_ns, pose)
 
     def _fitness_callback(self, message):
         self.latest_fitness = float(message.data)
@@ -408,7 +432,9 @@ class Nav2WaypointClient(Node):
             goal_handle.get_result_async()
         )
 
-        start_time = time.monotonic()
+        previous_time = time.monotonic()
+        active_elapsed = 0.0
+        sent_ns = int(goal.pose.header.stamp.sec) * 1000000000 + goal.pose.header.stamp.nanosec
 
         while (
             rclpy.ok()
@@ -425,11 +451,12 @@ class Nav2WaypointClient(Node):
                 self.cancel_active_goal()
                 raise
 
-            elapsed = (
-                time.monotonic() - start_time
-            )
+            now = time.monotonic()
+            if not self.obstacle_waiting(goal.pose, sent_ns):
+                active_elapsed += now - previous_time
+            previous_time = now
 
-            if elapsed > navigation_timeout_sec:
+            if active_elapsed > navigation_timeout_sec:
                 self.get_logger().error(
                     "导航任务超时"
                 )

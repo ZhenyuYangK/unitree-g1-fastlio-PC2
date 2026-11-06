@@ -40,7 +40,11 @@ def execute_mission(mission, transport, emit):
             # 到达立即关闭安全门，停留和下一段检查都在关门状态下进行。
             transport.close_gate()
             if status != 'SUCCEEDED':
-                raise MissionError('{}: {}'.format(step['waypoint'], status))
+                detail = getattr(transport, 'navigation_error', '')
+                if detail:
+                    record['navigation_error'] = detail
+                raise MissionError('{}: {}{}'.format(step['waypoint'], status,
+                                                     '；' + detail if detail else ''))
             transport.phase('ARRIVED', index)
             emit('ARRIVED {}'.format(step['waypoint']))
             speech = step.get('speech')

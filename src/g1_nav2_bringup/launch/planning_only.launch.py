@@ -28,6 +28,7 @@ def generate_launch_description():
         "planner_server",
         "recoveries_server",
         "bt_navigator",
+        "g1_reference/planner_server",
     ]
 
     return LaunchDescription([
@@ -92,6 +93,23 @@ def generate_launch_description():
             output="screen",
             parameters=[params_file, {"use_sim_time": use_sim_time}],
             remappings=[("cmd_vel", "/cmd_vel_nav")],
+        ),
+
+        Node(
+            package="nav2_planner",
+            executable="planner_server",
+            name="planner_server",
+            namespace="g1_reference",
+            output="screen",
+            parameters=[os.path.join(get_package_share_directory("g1_nav2_bringup"),
+                                     "config", "reference_planner.yaml")],
+        ),
+
+        Node(
+            package="g1_task_manager",
+            executable="g1_navigation_guard",
+            name="g1_navigation_guard",
+            output="screen",
         ),
 
         Node(

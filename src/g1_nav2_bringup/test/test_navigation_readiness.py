@@ -52,7 +52,7 @@ class NavigationReadinessTest(unittest.TestCase):
             self.path / 'manifest.json')
         self.executor = MultiThreadedExecutor(num_threads=3)
         self.fake_nodes = {}
-        for name in ('controller_server', 'planner_server', 'recoveries_server', 'bt_navigator'):
+        for name in ('controller_server', 'planner_server', 'recoveries_server', 'bt_navigator', 'g1_navigation_guard'):
             node = rclpy.create_node(name)
             self.fake_nodes[name] = node
             for key, value in record['expected'].get(name, {}).items():
@@ -63,6 +63,10 @@ class NavigationReadinessTest(unittest.TestCase):
             node.create_service(GetState, '/' + name + '/get_state', self.active)
             self.nodes.append(node)
             self.executor.add_node(node)
+        reference = rclpy.create_node('planner_server', namespace='/g1_reference')
+        reference.create_service(GetState, '/g1_reference/planner_server/get_state', self.active)
+        self.nodes.append(reference)
+        self.executor.add_node(reference)
         self.source = rclpy.create_node('p4_synthetic_source')
         self.nodes.append(self.source)
         self.executor.add_node(self.source)

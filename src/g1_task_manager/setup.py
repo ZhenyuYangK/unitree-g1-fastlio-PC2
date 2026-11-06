@@ -44,6 +44,7 @@ setup(
     ],
     entry_points={
         "console_scripts": [
+            "g1_navigation_guard = g1_task_manager.nav_guard:main",
             "g1_mission = g1_task_manager.mission_action_cli:main",
             (
                 "g1_task_manager_node = "
