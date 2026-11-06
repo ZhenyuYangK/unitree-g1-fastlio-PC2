@@ -1,5 +1,6 @@
 import argparse
 import math
+import os
 import sys
 
 from g1_task_manager.mission_cli import add_parsers, run_command
@@ -83,6 +84,9 @@ def print_goal(
 
 
 def main(args=None):
+    # Set before the lazy ROS/tf2 imports initialize NumPy/OpenBLAS. A worker
+    # may be launched by a task manager that predates the g1_env.sh setting.
+    os.environ['OPENBLAS_NUM_THREADS'] = '1'
     parser = build_parser()
     parsed = parser.parse_args(args=args)
 

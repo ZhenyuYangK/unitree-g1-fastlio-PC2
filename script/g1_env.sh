@@ -40,6 +40,9 @@ g1_read_config() {
   export G1_ENABLE_RVIZ="${G1_ENABLE_RVIZ:-1}"
   export G1_LOCALIZATION_TIMEOUT_SEC="${G1_LOCALIZATION_TIMEOUT_SEC:-180.0}"
   export G1_NAV_PROFILE="${G1_NAV_PROFILE:-safe}"
+  # Small ROS/Python transforms must not start competing BLAS thread pools.
+  # On PC2 the default pools consumed 4-5 cores and delayed TF callbacks.
+  export OPENBLAS_NUM_THREADS=1
   export G1_NETWORK_INTERFACE="${G1_NETWORK_INTERFACE:-}"
   export G1_HOST_IP="${G1_HOST_IP:-}"
   export G1_LIDAR_IP="${G1_LIDAR_IP:-}"
