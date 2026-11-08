@@ -7,6 +7,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "action/Speak.action"
   "srv/GetMissionState.srv"
   "srv/ContinueMission.srv"
+  "srv/NavigationHold.srv"
 )
 ament_export_dependencies(rosidl_default_runtime)
 ament_package()

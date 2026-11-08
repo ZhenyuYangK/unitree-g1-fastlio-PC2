@@ -15,7 +15,7 @@ from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSDurabilityPolicy
 from std_srvs.srv import SetBool
 from unique_identifier_msgs.msg import UUID
 from g1_task_interfaces.action import Speak
-from g1_task_interfaces.srv import GetMissionState, ContinueMission
+from g1_task_interfaces.srv import GetMissionState, ContinueMission, NavigationHold
 
 from .nav2_client import Nav2WaypointClient, STATUS_NAMES
 from .mission_engine import MissionError, MissionCanceled
@@ -36,11 +36,13 @@ class MissionTransport(MissionProgress):
                                   max_fitness=max_fitness,
                                   max_fitness_age_sec=max_fitness_age_sec)
         self.monitoring = False
+        self.reopen_gate_pending = False
         self.node = node
         # 在任何开门前检查安装版本支持自定义UUID，以便取消延迟接受的目标。
         if 'goal_uuid' not in inspect.signature(node.action_client.send_goal_async).parameters:
             raise MissionError('当前rclpy缺少goal_uuid参数，请先核对Foxy安装版本')
         self.gate = node.create_client(SetBool, gate_service)
+        self.recovery = node.create_client(NavigationHold, '/g1_navigation/data_hold')
         self.cancel = node.create_client(CancelGoal, '/navigate_to_pose/_action/cancel_goal')
         qos = QoSProfile(depth=10, reliability=QoSReliabilityPolicy.RELIABLE,
                          durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
@@ -123,7 +125,99 @@ class MissionTransport(MissionProgress):
                 raise MissionError('ROS context已关闭')
             rclpy.spin_once(self.node, timeout_sec=min(0.05, max(0, deadline - time.monotonic())))
             if self.monitoring and not self.cleanup:
+                self._monitor_navigation()
+
+    def _navigation_status(self):
+        return getattr(self.node, 'navigation_status', lambda *_: None)(
+            getattr(self, 'navigation_pose', None), getattr(self, 'navigation_sent_ns', 0))
+
+    def _monitor_navigation(self):
+        if getattr(self, 'result_future', None) is not None and self.result_future.done():
+            return
+        fault = None
+        try:
+            self.node.check_health(**self.health_limits)
+        except Exception as error:
+            if getattr(error, 'recovery_code', '') not in ('TASK_TF_STALE', 'TASK_TF_UNAVAILABLE'):
+                raise
+            fault = error
+        status = self._navigation_status()
+        if fault or (status and status.get('data_hold') is True):
+            self._recover_navigation_data(fault)
+        elif getattr(self, 'reopen_gate_pending', False) and status and status.get('permit') is True:
+            # Keep the manual gate closed during replanning and obstacle waits.
+            # Only a fresh same-session permission plus our own health can reopen.
+            if status['session'] != self.recovery_session:
+                raise MissionError('数据恢复后的导航会话发生变化')
+            self.monitoring = False
+            try:
+                self._gate(True)
                 self.node.check_health(**self.health_limits)
+            finally:
+                self.monitoring = True
+            self.reopen_gate_pending = False
+
+    def _hold_rpc(self, session, episode, resume, reason):
+        request = NavigationHold.Request()
+        request.session, request.episode = session, episode
+        request.resume, request.reason = resume, reason
+        return self._service(self.recovery, request, timeout=1.0)
+
+    def _recover_navigation_data(self, fault):
+        # Disable recursive monitoring while closing the gate / draining RPCs.
+        # A failure or cancellation leaves it closed; the caller's cleanup runs.
+        self.monitoring = False
+        self.reopen_gate_pending = False
+        self._gate(False)
+        status = self._navigation_status()
+        if not status:
+            raise MissionError('数据异常已停车，但未收到本次目标的有效协调器状态')
+        session = status['session']
+        episode = status.get('hold_episode', 0) if status.get('data_hold') is True else 0
+        reason = getattr(fault, 'recovery_code', '') if fault else 'ACK'
+        response = self._hold_rpc(session, episode, False, reason)
+        if response is None or not response.accepted:
+            raise MissionError('数据异常暂停未确认：' + str(getattr(response, 'message', '无响应')))
+        episode = response.episode
+        self.node.get_logger().warning('TASK_DATA_HOLD: session={} episode={} reason={}'.format(
+            session, episode, reason))
+        if hasattr(self, 'control'):
+            self.phase('RECOVERING_DATA', self.control.snapshot()['current_step'],
+                       '数据暂时过期，已停车并等待稳定恢复')
+        deadline = time.monotonic() + 4.0
+        healthy_since = None
+        released = False
+        while time.monotonic() < deadline:
+            self._spin(.02)
+            if self.result_future.done():
+                return  # Terminal/canceled: never reopen a finished goal.
+            status = self._navigation_status()
+            if not status:
+                healthy_since = None
+                continue
+            if status['session'] != session or status.get('hold_episode') != episode:
+                raise MissionError('数据恢复会话或暂停编号不匹配')
+            try:
+                self.node.check_health(**self.health_limits)
+            except Exception as error:
+                if getattr(error, 'recovery_code', '') not in ('TASK_TF_STALE', 'TASK_TF_UNAVAILABLE'):
+                    raise
+                healthy_since = None
+                continue
+            now = time.monotonic()
+            if healthy_since is None:
+                healthy_since = now
+            if not released and status.get('hold_ready') is True and now-healthy_since >= .5:
+                response = self._hold_rpc(session, episode, True, '')
+                released = bool(response and response.accepted)
+            if released and status.get('data_hold') is False:
+                self.recovery_session = session
+                self.reopen_gate_pending = True
+                self.monitoring = True
+                if hasattr(self, 'control'):
+                    self.phase('NAVIGATING', self.control.snapshot()['current_step'], '数据恢复，继续当前导航点')
+                return
+        raise MissionError('数据恢复握手超时，安全门保持关闭')
 
     def _wait(self, future, timeout):
         deadline = time.monotonic() + timeout
@@ -152,6 +246,7 @@ class MissionTransport(MissionProgress):
 
     def close_gate(self):
         self.monitoring = False
+        self.reopen_gate_pending = False
         self._gate(False)
 
     def preflight(self, mission):

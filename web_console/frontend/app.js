@@ -9,7 +9,7 @@ function randomId() {
 }
 const titles = { overview: "运行总览", waypoints: "导航点", missions: "巡航任务", mapping: "建图管理", integration: "系统接入" };
 const phases = { IDLE: "待命", UNKNOWN: "未知", STARTING: "准备中", NAVIGATING: "前往站点", SPEAKING_ZH: "中文讲解", SPEAKING_EN: "英文讲解", WAITING_FOR_CONTINUE: "等待放行", CONTINUING: "准备继续", CANCELING: "正在取消", CANCELED: "已取消", COMPLETED: "已完成", FAILED: "失败" };
-Object.assign(phases, { CHECKING: "就绪检查", ARRIVED: "已到站", DWELLING: "站点停留", CLEANING_UP: "收尾中", SUCCEEDED: "已完成", CHECKED: "校验完成", ABORTED: "已中止", STOP_UNCONFIRMED: "停止未确认" });
+Object.assign(phases, { RECOVERING_DATA: "已停车，等待数据恢复", CHECKING: "就绪检查", ARRIVED: "已到站", DWELLING: "站点停留", CLEANING_UP: "收尾中", SUCCEEDED: "已完成", CHECKED: "校验完成", ABORTED: "已中止", STOP_UNCONFIRMED: "停止未确认" });
 let snapshot = null, catalog = null, socket = null, lastReceived = 0, connected = false;
 let pending = false, leaseId = sessionStorage.getItem("g1_control_lease") || "";
 let haveLease = false, retryTimer = null, retryDelay = 1000, instanceId = null, sequence = -1;

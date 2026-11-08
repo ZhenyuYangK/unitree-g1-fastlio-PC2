@@ -19,7 +19,9 @@ except ImportError:
 
 
 class Nav2NavigationError(RuntimeError):
-    pass
+    def __init__(self, message, recovery_code=''):
+        super().__init__(message)
+        self.recovery_code = recovery_code
 
 
 STATUS_NAMES = {
@@ -124,6 +126,11 @@ class Nav2WaypointClient(Node):
         return failure_for_this_goal(self.guard_status, time.monotonic() - self.guard_received,
                                      sent_ns, pose)
 
+    def navigation_status(self, pose, sent_ns):
+        from .navigation_recovery import matched_status
+        return matched_status(self.guard_status, time.monotonic()-self.guard_received,
+                              sent_ns, pose, self.get_clock().now().nanoseconds)
+
     def _fitness_callback(self, message):
         self.latest_fitness = float(message.data)
         self.latest_fitness_time = time.monotonic()
@@ -225,7 +232,7 @@ class Nav2WaypointClient(Node):
                 self.global_frame, self.base_frame, Time())
         except TransformException as exc:
             raise Nav2NavigationError('无法获取{}→{}：{}'.format(
-                self.global_frame, self.base_frame, exc)) from exc
+                self.global_frame, self.base_frame, exc), 'TASK_TF_UNAVAILABLE') from exc
         stamp = transform.header.stamp
         age = (None if self.latest_fitness_time is None else
                time.monotonic() - self.latest_fitness_time)
@@ -262,7 +269,8 @@ class Nav2WaypointClient(Node):
                             "{}->{} unavailable: {}".format(
                                 parent, child, exc))
                 reason += " [TF_DIAG] " + "; ".join(details)
-            raise Nav2NavigationError(reason)
+            raise Nav2NavigationError(reason, 'TASK_TF_STALE'
+                                      if reason.startswith('TF已过期：') else '')
         return transform
 
     def _feedback_callback(self, feedback_message):

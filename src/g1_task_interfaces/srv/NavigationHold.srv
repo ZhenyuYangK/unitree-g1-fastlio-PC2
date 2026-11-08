@@ -1,0 +1,10 @@
+# The caller must close its manual gate before requesting/acknowledging a hold.
+# session is the coordinator's exact NavigateToPose UUID (hex, from status).
+string session
+uint64 episode
+bool resume
+string reason
+---
+bool accepted
+uint64 episode
+string message

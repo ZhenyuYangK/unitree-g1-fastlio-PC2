@@ -5,6 +5,7 @@ motion bridge consumes our expiring permit in addition to its manual gate.
 """
 import json
 import math
+import struct
 import threading
 import time
 import uuid
@@ -13,7 +14,9 @@ import rclpy
 from action_msgs.msg import GoalStatus, GoalStatusArray
 from action_msgs.srv import CancelGoal
 from dwb_msgs.msg import LocalPlanEvaluation
+from geometry_msgs.msg import PoseStamped
 from g1_task_interfaces.action import Speak
+from g1_task_interfaces.srv import NavigationHold
 from nav2_msgs.action import ComputePathToPose, FollowPath, NavigateToPose
 from nav_msgs.msg import OccupancyGrid, Odometry, Path
 from rcl_interfaces.msg import ParameterDescriptor
@@ -30,6 +33,7 @@ from unique_identifier_msgs.msg import UUID
 
 from .action_client import SynchronizedActionClient as ActionClient
 from .health import localization_status_reason
+from .navigation_recovery import DataHold, RECOVERABLE
 from .nav_guard_policy import (TEXT, ObstacleWait, RouteBudget, dynamic_block_on_path,
                                evaluation_state, path_length)
 
@@ -39,6 +43,14 @@ class NavigationFault(RuntimeError):
 
 
 class NavigationCanceled(Exception):
+    pass
+
+
+class NavigationPause(Exception):
+    pass
+
+
+class NavigationArrived(Exception):
     pass
 
 
@@ -63,7 +75,8 @@ class NavigationGuard(Node):
         defaults = dict(extra_distance_m=10.0, speech_delay_sec=1.0, clear_hold_sec=2.0,
                         replan_period_sec=1.0, sensor_timeout_sec=1.0,
                         evaluation_timeout_sec=.5, planner_timeout_sec=3.0,
-                        cancel_timeout_sec=2.0, speech_wait_sec=4.0)
+                        cancel_timeout_sec=2.0, speech_wait_sec=4.0,
+                        data_recovery_timeout_sec=3.0, data_recovery_stable_sec=.5)
         for name, value in defaults.items():
             self.declare_parameter(name, value, ParameterDescriptor(read_only=True))
         self.cfg = {name: self.get_parameter(name).value for name in defaults}
@@ -82,6 +95,12 @@ class NavigationGuard(Node):
         self.reference_grid = self.live_grid = None
         self.live_at = self.cloud_at = self.odom_at = self.status_at = 0.0
         self.cloud_stamp = 0
+        self.last_cloud_receipt_gap = 0.0
+        self.data_hold = DataHold(self.cfg['data_recovery_timeout_sec'],
+                                  self.cfg['data_recovery_stable_sec'])
+        self.clock_fault = False
+        self.previous_ros = None
+        self.last_health_diagnostic = {}
         self.localization = None
         self.odom = None
         self.eval = None
@@ -108,12 +127,15 @@ class NavigationGuard(Node):
                              durability=QoSDurabilityPolicy.VOLATILE)
         status_qos = QoSProfile(depth=1, reliability=QoSReliabilityPolicy.RELIABLE,
                                durability=QoSDurabilityPolicy.TRANSIENT_LOCAL)
+        self.goal_pub = self.create_publisher(PoseStamped, '/g1_navigation/goal', status_qos)
+        self.navigation_goal = None
+        self.goal_publish_at = -math.inf
         self.create_subscription(OccupancyGrid, '/global_costmap/costmap', self.live_map, grid_qos,
                                  callback_group=self.group)
         self.create_subscription(OccupancyGrid, '/g1_reference/global_costmap/costmap',
                                  self.reference_map, grid_qos, callback_group=self.group)
         self.create_subscription(PointCloud2, '/cloud_registered_body', self.cloud,
-                                 qos_profile_sensor_data, callback_group=self.group)
+                                 qos_profile_sensor_data, callback_group=self.group, raw=True)
         self.create_subscription(Odometry, '/Odometry_nav', self.odometry,
                                  qos_profile_sensor_data, callback_group=self.group)
         self.create_subscription(String, '/g1_relocalization/status', self.localization_status,
@@ -140,6 +162,8 @@ class NavigationGuard(Node):
         self.server = ActionServer(self, NavigateToPose, '/g1_navigation/execute', self.execute,
                                    goal_callback=self.accept, cancel_callback=self.cancel,
                                    callback_group=self.group)
+        self.hold_service = self.create_service(NavigationHold, '/g1_navigation/data_hold',
+                                                self.hold_request, callback_group=self.group)
         self.timer = self.create_timer(.05, self.heartbeat, callback_group=self.group)
 
     @staticmethod
@@ -155,8 +179,17 @@ class NavigationGuard(Node):
             self.reference_grid = message
 
     def cloud(self, message):
+        # Point data is never inspected here. Avoid constructing Python objects
+        # for the full cloud just to read its CDR Header (sec/nanosec).
+        if len(message) < 12 or bytes(message[:2]) not in (b'\x00\x01', b'\x00\x00'):
+            return
+        sec, nsec = struct.unpack_from('<iI' if message[1] & 1 else '>iI', message, 4)
+        if sec < 0 or nsec >= 1000000000:
+            return
         with self.lock:
-            self.cloud_at, self.cloud_stamp = time.monotonic(), self.stamp(message)
+            now = time.monotonic()
+            self.last_cloud_receipt_gap = now - self.cloud_at if self.cloud_at else 0.0
+            self.cloud_at, self.cloud_stamp = now, sec * 1000000000 + nsec
 
     def odometry(self, message):
         with self.lock:
@@ -198,16 +231,39 @@ class NavigationGuard(Node):
                 self.local_obstacle_at = self.eval_at
 
     def health(self):
+        # All values form one snapshot. Read the ROS clock after message fields,
+        # so a concurrent callback cannot manufacture a negative data age.
+        with self.lock:
+            return self._health_locked()
+
+    def _health_locked(self):
         now = time.monotonic()
         ros = self.get_clock().now().nanoseconds
+        if self.previous_ros is not None and ros < self.previous_ros:
+            self.clock_fault = True
+        self.previous_ros = ros
+        self.last_health_diagnostic = dict(
+            now_ns=ros, cloud_stamp_ns=self.cloud_stamp,
+            cloud_receipt_age_sec=now-self.cloud_at,
+            cloud_header_age_sec=(ros-self.cloud_stamp)/1e9,
+            cloud_last_gap_sec=self.last_cloud_receipt_gap,
+            odom_receipt_age_sec=now-self.odom_at,
+            odom_header_age_sec=(ros-self.stamp(self.odom))/1e9 if self.odom else None,
+            controller_uuid=bytes(self.follow.goal_id.uuid).hex() if self.follow else '')
+        if self.clock_fault or ros <= 0:
+            return 'NAVIGATION_CLOCK_INVALID'
         if self.odom_fault:
             return 'ODOMETRY_JUMP'
         reason = localization_status_reason(self.localization, now - self.status_at, ros)
         if reason:
             return reason
+        if self.cloud_stamp > ros:
+            return 'OBSTACLE_SENSOR_CLOCK_INVALID'
         if (now - self.cloud_at > self.cfg['sensor_timeout_sec'] or
                 not 0 <= ros - self.cloud_stamp <= int(self.cfg['sensor_timeout_sec'] * 1e9)):
             return 'OBSTACLE_SENSOR_STALE'
+        if self.odom is not None and self.stamp(self.odom) > ros:
+            return 'ODOMETRY_CLOCK_INVALID'
         if self.odom is None or now - self.odom_at > .5 or not 0 <= ros - self.stamp(self.odom) <= 500000000:
             return 'ODOMETRY_STALE'
         if (self.live_grid is None or self.reference_grid is None or
@@ -221,11 +277,62 @@ class NavigationGuard(Node):
         try:
             transform = self.tf.lookup_transform('map', 'nav_base', Time())
             stamp = transform.header.stamp.sec * 1000000000 + transform.header.stamp.nanosec
+            self.last_health_diagnostic['tf_stamp_ns'] = stamp
+            self.last_health_diagnostic['tf_age_sec'] = (ros-stamp)/1e9
+            if stamp > ros:
+                return 'NAVIGATION_TF_CLOCK_INVALID'
             if not 0 <= ros - stamp <= 500000000:
                 return 'NAVIGATION_TF_STALE'
         except Exception:
             return 'NAVIGATION_TF_UNAVAILABLE'
         return ''
+
+    def begin_data_hold(self, reason):
+        with self.lock:
+            was_active = self.data_hold.active
+            self.data_hold.begin(time.monotonic(), reason)
+            self.mode, self.reason = 'DATA_HOLD', self.data_hold.reason
+            self.path_ok = False
+            if not was_active:
+                self.get_logger().warning('NAVIGATION_DATA_HOLD: ' + json.dumps(dict(
+                    reason=reason, episode=self.data_hold.episode,
+                    diagnostics=self.last_health_diagnostic), ensure_ascii=False))
+        self.heartbeat()
+
+    def hold_request(self, request, response):
+        with self.lock:
+            response.episode = self.data_hold.episode
+            if (self.current is None or self.cancel_requested or self.current.is_cancel_requested or
+                    request.session != bytes(self.current.goal_id.uuid).hex()):
+                response.message = 'Navigation session is no longer active'
+                return response
+            if request.resume:
+                if (request.episode != self.data_hold.episode or
+                        not self.data_hold.ready(time.monotonic()) or self.health()):
+                    response.message = 'Data hold is not ready for release'
+                    return response
+                self.data_hold.released = True
+            else:
+                if request.reason not in ('ACK', 'TASK_TF_STALE', 'TASK_TF_UNAVAILABLE'):
+                    response.message = 'Invalid hold reason'
+                    return response
+                if request.episode not in (0, self.data_hold.episode):
+                    response.message = 'Stale data hold episode'
+                    return response
+                if not self.data_hold.active:
+                    if request.reason == 'ACK' or request.episode != 0:
+                        response.message = 'No data hold to acknowledge'
+                        return response
+                    try:
+                        self.begin_data_hold(request.reason)
+                    except RuntimeError as error:
+                        response.message = str(error)
+                        return response
+                self.data_hold.acknowledged = True
+            response.accepted = True
+            response.episode = self.data_hold.episode
+            response.message = 'Data hold release accepted' if request.resume else 'Closed gate acknowledged'
+        return response
 
     def accept(self, request):
         p, q = request.pose.pose.position, request.pose.pose.orientation
@@ -329,7 +436,63 @@ class NavigationGuard(Node):
             raise NavigationCanceled()
         reason = self.health()
         if reason:
-            raise NavigationFault(reason)
+            if reason not in RECOVERABLE:
+                raise NavigationFault(reason)
+            self.begin_data_hold(reason)
+        if self.data_hold.active:
+            raise NavigationPause(self.data_hold.reason)
+
+    def check_controller_result(self):
+        """Consume the current result before planning can replace its handle."""
+        if self.follow is None or not self.terminal(self.follow):
+            return
+        status = self.follow.terminal_status
+        if status == GoalStatus.STATUS_SUCCEEDED:
+            raise NavigationArrived()
+        if self.evaluation_now() != 'OBSTACLE':
+            raise NavigationFault('CONTROLLER_FAILED_WITHOUT_OBSTACLE:' + str(status))
+        self.set_mode('BLOCKED', 'DWB_OBSTACLE')
+        self.wait.observe(time.monotonic(), False, True)
+        self.stop_follow()
+
+    def recover_data(self):
+        """Stop first, then await bounded stable data AND a closed-gate handshake."""
+        self.stop_follow()
+        pending = [o for o in self.operations if not self.terminal(o)]
+        stop_deadline = time.monotonic() + self.cfg['cancel_timeout_sec']
+        while any(not self.terminal(o) for o in pending):
+            if self.cancel_requested or self.current.is_cancel_requested:
+                raise NavigationCanceled()
+            for operation in pending:
+                if not self.terminal(operation):
+                    self.cancel_owned(operation)
+            if time.monotonic() >= stop_deadline:
+                raise NavigationFault('DATA_HOLD_STOP_UNCONFIRMED')
+            time.sleep(.01)
+        with self.lock:
+            self.data_hold.stopped = True
+        while True:
+            if not rclpy.ok() or self.cancel_requested or self.current.is_cancel_requested:
+                raise NavigationCanceled()
+            reason = self.health()
+            if reason and reason not in RECOVERABLE:
+                raise NavigationFault(reason)
+            with self.lock:
+                now = time.monotonic()
+                if self.data_hold.expired(now):
+                    raise NavigationFault('DATA_RECOVERY_TIMEOUT:' + self.data_hold.reason)
+                ready = self.data_hold.observe(now, not reason)
+                if ready and self.data_hold.released:
+                    self.get_logger().info('NAVIGATION_DATA_RECOVERED: episode={}'.format(
+                        self.data_hold.episode))
+                    self.data_hold.finish()
+                    # Do not reset the original reference, traveled distance,
+                    # obstacle episode, or total recovery-attempt allowance.
+                    self.wait.clear_since = None
+                    self.mode, self.reason = 'PLANNING', ''
+                    return
+            self.set_mode('DATA_READY' if ready else 'DATA_HOLD', self.data_hold.reason)
+            time.sleep(.02)
 
     def set_mode(self, state, reason=''):
         with self.lock:
@@ -358,6 +521,7 @@ class NavigationGuard(Node):
         with self.lock:
             active = self.current is not None and not self.cancel_requested and not self.current.is_cancel_requested
             permit = bool(active and self.mode == 'MOVING' and self.path_ok and
+                          not self.data_hold.active and
                           self.evaluation_now() == 'CLEAR' and not self.health())
             goal = None
             if self.current:
@@ -365,6 +529,9 @@ class NavigationGuard(Node):
                 q = pose.pose.orientation
                 goal = dict(frame=pose.header.frame_id, x=pose.pose.position.x,
                             y=pose.pose.position.y, qx=q.x, qy=q.y, qz=q.z, qw=q.w)
+                if self.navigation_goal is not None and time.monotonic()-self.goal_publish_at >= .5:
+                    self.goal_pub.publish(self.navigation_goal)
+                    self.goal_publish_at = time.monotonic()
             record = dict(schema='G1_NAVIGATION_WAIT_V1', stamp_ns=self.get_clock().now().nanoseconds,
                           active=active, permit=permit, state=self.mode, reason=self.reason, goal=goal,
                           last_goal=self.last_goal, last_fault=self.last_fault,
@@ -372,6 +539,12 @@ class NavigationGuard(Node):
                           pending_owned_goals=[dict(action=self.endpoints[o.client],
                                                    uuid=bytes(o.goal_id.uuid).hex())
                                                for o in self.recovery_operations if not self.terminal(o)],
+                          data_hold=self.data_hold.active,
+                          hold_episode=self.data_hold.episode,
+                          hold_ready=self.data_hold.ready(time.monotonic()),
+                          hold_remaining_sec=max(0., self.data_hold.timeout -
+                                                (time.monotonic()-self.data_hold.started))
+                                             if self.data_hold.active else 0.,
                           obstacle_wait=bool(active and self.wait and self.wait.waiting and self.wait.confirmed),
                           session=bytes(self.current.goal_id.uuid).hex() if self.current else '',
                           episode=self.wait.episode if self.wait else 0,
@@ -569,105 +742,38 @@ class NavigationGuard(Node):
             self.reason = ''
             self.odom_fault = False
             self.last_fault = ''
+            self.navigation_goal = PoseStamped()
+            self.navigation_goal.header.frame_id = handle.request.pose.header.frame_id
+            self.navigation_goal.header.stamp = self.get_clock().now().to_msg()
+            self.navigation_goal.pose = handle.request.pose.pose
+            self.goal_publish_at = -math.inf
+            self.data_hold = DataHold(self.cfg['data_recovery_timeout_sec'],
+                                      self.cfg['data_recovery_stable_sec'])
             q = handle.request.pose.pose.orientation
             self.last_goal = dict(frame=handle.request.pose.header.frame_id,
                                   x=handle.request.pose.pose.position.x, y=handle.request.pose.pose.position.y,
                                   qx=q.x, qy=q.y, qz=q.z, qw=q.w)
         self.set_mode('PLANNING')
         try:
-            deadline = time.monotonic() + self.cfg['planner_timeout_sec']
-            while self.health():
-                if self.cancel_requested or handle.is_cancel_requested:
-                    raise NavigationCanceled()
-                if time.monotonic() >= deadline:
-                    raise NavigationFault(self.health())
-                time.sleep(.02)
-            pose = handle.request.pose
-            self.reference_path = self.plan(self.reference, pose)
-            if self.reference_path is None:
-                raise NavigationFault('STATIC_REFERENCE_UNREACHABLE')
-            self.budget = RouteBudget(path_length(self.reference_path), self.cfg['extra_distance_m'])
-            next_plan = 0.0
-            candidate = None
             while True:
-                self.checkpoint()
-                now = time.monotonic()
-                # An indefinite wait must not accumulate completed RPCs.
-                self.operations[:] = [o for o in self.operations if not self.terminal(o) or o is self.follow]
-                if now >= next_plan:
-                    candidate = self.plan(self.planner, pose)
-                    self.path_ok = candidate is not None and self.budget.allows(path_length(candidate))
-                    if not self.path_ok:
-                        evidence = self.blocked_evidence()
-                        if not evidence:
-                            # Planner reads its internal grid before the 1 Hz
-                            # public costmap reaches us. Stop while that single
-                            # publication catches up; never pause task timeouts
-                            # for an unconfirmed planner failure.
-                            self.set_mode('CHECKING_OBSTACLE')
-                            self.stop_follow()
-                            deadline = time.monotonic() + 1.5
-                            while not evidence and time.monotonic() < deadline:
-                                self.checkpoint()
-                                time.sleep(.02)
-                                evidence = self.blocked_evidence()
-                            if not evidence:
-                                raise NavigationFault('NO_ALLOWED_ROUTE_WITHOUT_OBSTACLE')
-                        self.set_mode('BLOCKED', 'NO_ROUTE' if candidate is None else 'DETOUR_LIMIT')
-                        self.wait.observe(time.monotonic(), False, evidence)
-                        self.stop_follow()
-                    else:
-                        self.path_pub.publish(candidate)
-                        self.distance_remaining = path_length(candidate)
-                        # Controller preemption updates the path without resetting
-                        # its progress checker. The old exact handle is retained
-                        # for cleanup, but only the new result may finish this leg.
-                        previous = self.follow
-                        self.follow = self.send(self.controller, FollowPath.Goal(path=candidate, controller_id='FollowPath'))
-                        if previous and self.mode in ('MOVING', 'PROBING'):
-                            self.follow.started = previous.started
-                        self.wait_accept(self.follow)
-                    next_plan = time.monotonic() + self.cfg['replan_period_sec']
-                now = time.monotonic()
-                if self.follow:
-                    state = self.evaluation_now()
-                    if self.terminal(self.follow):
-                        status = self.follow.terminal_status
-                        if status == GoalStatus.STATUS_SUCCEEDED:
-                            outcome = 'SUCCEEDED'
-                            break
-                        if state != 'OBSTACLE':
-                            raise NavigationFault('CONTROLLER_FAILED_WITHOUT_OBSTACLE:' + str(status))
-                        state = 'OBSTACLE'
-                    if state == 'CLEAR':
-                        permit = self.wait.observe(now, True)
-                        self.set_mode('MOVING' if permit else 'PROBING')
-                    elif state == 'OBSTACLE':
-                        self.set_mode('BLOCKED', 'DWB_OBSTACLE')
-                        self.wait.observe(now, False, True)
-                        self.stop_follow()
-                    elif state == 'FAULT':
-                        raise NavigationFault('DWB_FAILED_WITHOUT_OBSTACLE')
-                    else:
-                        # A gap in fresh controller evidence breaks the two
-                        # continuous clear seconds; it cannot release a wait.
-                        self.wait.clear_since = None
-                        if self.get_clock().now().nanoseconds - self.follow.started > 1000000000:
-                            raise NavigationFault('DWB_EVALUATION_TIMEOUT')
-                else:
-                    self.wait.observe(now, False, self.blocked_evidence())
-                self.speak_once()
-                self.publish_feedback()
-                time.sleep(.02)
+                try:
+                    self.navigate_current_goal(handle)
+                except NavigationPause:
+                    self.recover_data()
+        except NavigationArrived:
+            outcome = 'SUCCEEDED'
         except NavigationCanceled:
             outcome = 'CANCELED'
         except Exception as error:
             self.last_fault = str(error)
+            self.get_logger().error('NAVIGATION_FAULT_SNAPSHOT: ' + json.dumps(
+                self.last_health_diagnostic, ensure_ascii=False))
             self.get_logger().error('NAVIGATION_FAULT: {}: {}'.format(type(error).__name__, error))
         finally:
             stopped = self.cleanup()
             with self.lock:
                 self.current = None
+                self.data_hold.finish()
                 self.busy = False
                 self.mode = 'IDLE' if stopped else 'STOP_UNCONFIRMED'
             self.heartbeat()
@@ -680,6 +786,94 @@ class NavigationGuard(Node):
         else:
             handle.abort()
         return result
+
+    def navigate_current_goal(self, handle):
+        deadline = time.monotonic() + self.cfg['planner_timeout_sec']
+        while self.health():
+            if self.cancel_requested or handle.is_cancel_requested:
+                raise NavigationCanceled()
+            if time.monotonic() >= deadline:
+                raise NavigationFault(self.health())
+            time.sleep(.02)
+        pose = handle.request.pose
+        if self.reference_path is None:
+            self.reference_path = self.plan(self.reference, pose)
+            if self.reference_path is None:
+                raise NavigationFault('STATIC_REFERENCE_UNREACHABLE')
+            self.budget = RouteBudget(path_length(self.reference_path), self.cfg['extra_distance_m'])
+        next_plan = 0.0
+        candidate = None
+        while True:
+            self.checkpoint()
+            self.check_controller_result()
+            now = time.monotonic()
+            # An indefinite wait must not accumulate completed RPCs.
+            self.operations[:] = [o for o in self.operations if not self.terminal(o) or o is self.follow]
+            if now >= next_plan:
+                candidate = self.plan(self.planner, pose)
+                self.check_controller_result()
+                self.path_ok = candidate is not None and self.budget.allows(path_length(candidate))
+                if not self.path_ok:
+                    evidence = self.blocked_evidence()
+                    if not evidence:
+                        # Planner reads its internal grid before the 1 Hz
+                        # public costmap reaches us. Stop while that single
+                        # publication catches up; never pause task timeouts
+                        # for an unconfirmed planner failure.
+                        self.set_mode('CHECKING_OBSTACLE')
+                        self.stop_follow()
+                        deadline = time.monotonic() + 1.5
+                        while not evidence and time.monotonic() < deadline:
+                            self.checkpoint()
+                            time.sleep(.02)
+                            evidence = self.blocked_evidence()
+                        if not evidence:
+                            raise NavigationFault('NO_ALLOWED_ROUTE_WITHOUT_OBSTACLE')
+                    self.set_mode('BLOCKED', 'NO_ROUTE' if candidate is None else 'DETOUR_LIMIT')
+                    self.wait.observe(time.monotonic(), False, evidence)
+                    self.stop_follow()
+                else:
+                    self.path_pub.publish(candidate)
+                    self.distance_remaining = path_length(candidate)
+                    # Controller preemption updates the path without resetting
+                    # its progress checker. The old exact handle is retained
+                    # for cleanup, but only the new result may finish this leg.
+                    previous = self.follow
+                    self.follow = self.send(self.controller, FollowPath.Goal(path=candidate, controller_id='FollowPath'))
+                    if previous and self.mode in ('MOVING', 'PROBING'):
+                        self.follow.started = previous.started
+                    self.wait_accept(self.follow)
+                next_plan = time.monotonic() + self.cfg['replan_period_sec']
+            now = time.monotonic()
+            if self.follow:
+                state = self.evaluation_now()
+                if self.terminal(self.follow):
+                    status = self.follow.terminal_status
+                    if status == GoalStatus.STATUS_SUCCEEDED:
+                        raise NavigationArrived()
+                    if state != 'OBSTACLE':
+                        raise NavigationFault('CONTROLLER_FAILED_WITHOUT_OBSTACLE:' + str(status))
+                    state = 'OBSTACLE'
+                if state == 'CLEAR':
+                    permit = self.wait.observe(now, True)
+                    self.set_mode('MOVING' if permit else 'PROBING')
+                elif state == 'OBSTACLE':
+                    self.set_mode('BLOCKED', 'DWB_OBSTACLE')
+                    self.wait.observe(now, False, True)
+                    self.stop_follow()
+                elif state == 'FAULT':
+                    raise NavigationFault('DWB_FAILED_WITHOUT_OBSTACLE')
+                else:
+                    # A gap in fresh controller evidence breaks the two
+                    # continuous clear seconds; it cannot release a wait.
+                    self.wait.clear_since = None
+                    if self.get_clock().now().nanoseconds - self.follow.started > 1000000000:
+                        raise NavigationFault('DWB_EVALUATION_TIMEOUT')
+            else:
+                self.wait.observe(now, False, self.blocked_evidence())
+            self.speak_once()
+            self.publish_feedback()
+            time.sleep(.02)
 
     def destroy_node(self):
         # Foxy action entities must release their node handles before Node.
