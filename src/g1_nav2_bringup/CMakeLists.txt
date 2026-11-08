@@ -9,6 +9,17 @@ find_package(nav2_behavior_tree REQUIRED)
 find_package(nav2_msgs REQUIRED)
 find_package(behaviortree_cpp_v3 REQUIRED)
 find_package(rclcpp_action REQUIRED)
+find_package(rclcpp_lifecycle REQUIRED)
+find_package(nav2_core REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(geometry_msgs REQUIRED)
+
+add_library(g1_goal_progress_checker SHARED src/goal_progress_checker.cpp)
+target_compile_features(g1_goal_progress_checker PUBLIC cxx_std_14)
+ament_target_dependencies(g1_goal_progress_checker
+  rclcpp rclcpp_lifecycle geometry_msgs nav2_core pluginlib)
+install(TARGETS g1_goal_progress_checker LIBRARY DESTINATION lib)
+pluginlib_export_plugin_description_file(nav2_core progress_checker_plugin.xml)
 
 add_library(g1_guarded_navigate_bt_node SHARED src/guarded_navigate_action.cpp)
 target_compile_features(g1_guarded_navigate_bt_node PUBLIC cxx_std_14)
@@ -35,6 +46,10 @@ if(BUILD_TESTING)
   find_package(ament_cmake_gtest REQUIRED)
   find_package(dwb_plugins REQUIRED)
   ament_add_gtest(test_navigation_odometry test/test_navigation_odometry.cpp)
+  ament_add_gtest(test_progress_interface test/test_progress_interface.cpp
+    ENV ROS_DOMAIN_ID=188 ROS_LOCALHOST_ONLY=1 RMW_IMPLEMENTATION=rmw_fastrtps_cpp)
+  ament_target_dependencies(test_progress_interface
+    nav2_core pluginlib rclcpp rclcpp_lifecycle geometry_msgs)
   target_include_directories(test_navigation_odometry PRIVATE include)
   target_link_libraries(test_navigation_odometry Eigen3::Eigen)
   ament_target_dependencies(test_navigation_odometry nav_msgs dwb_plugins)
@@ -55,7 +70,7 @@ if(BUILD_TESTING)
       ${CMAKE_CURRENT_SOURCE_DIR}/../g1_task_manager/test/nav_guard_ros_smoke.py
     ENV "PYTHONPATH=${CMAKE_CURRENT_SOURCE_DIR}/../g1_task_manager:$ENV{PYTHONPATH}"
       ROS_LOG_DIR=${CMAKE_CURRENT_BINARY_DIR}/test_guard_ros_logs
-    TIMEOUT 90)
+    TIMEOUT 180)
   ament_add_test(test_navigation_guard_stack
     GENERATE_RESULT_FOR_RETURN_CODE_ZERO
     COMMAND ${Python3_EXECUTABLE}

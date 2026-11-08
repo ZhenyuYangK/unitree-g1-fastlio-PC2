@@ -49,6 +49,11 @@ def navigation_parameters(source, profile):
     if profile == 'safe':
         follow['max_vel_x'] = follow['max_speed_xy'] = 0.2
     controller.update(odom_topic='/Odometry_nav', use_sim_time=False)
+    progress = controller['progress_checker']
+    if progress['plugin'] != 'g1_nav2_bringup/GoalProgressChecker':
+        raise ValueError('Expected the user-selected pass-through progress interface')
+    if controller['goal_checker']['stateful'] is not False:
+        raise ValueError('Goal completion must recheck position as well as heading')
     if 'goal_checker_plugins' in controller or 'goal_checker_plugin' not in controller:
         raise ValueError('Expected Foxy goal_checker_plugin parameter')
     bt = node_params(data, 'bt_navigator')
@@ -106,6 +111,8 @@ def generate(source, output, profile='safe', bridge_sources=None, manifest=None)
         params = node_params(navigation, node)
         if node == 'controller_server':
             selected = {'odom_topic': params['odom_topic'], 'use_sim_time': False,
+                        'progress_checker': params['progress_checker'],
+                        'goal_checker': params['goal_checker'],
                         'FollowPath': {k: params['FollowPath'][k] for k in VELOCITY_KEYS}}
         elif node == 'bt_navigator':
             selected = {'odom_topic': params['odom_topic'], 'use_sim_time': False}
@@ -118,7 +125,8 @@ def generate(source, output, profile='safe', bridge_sources=None, manifest=None)
         'body_frame': 'body', 'navigation_frame': 'nav_base',
         'body_to_nav_rotation_xyzw': [1.0, 0.0, 0.0, 0.0], 'use_sim_time': False}
     expected['g1_navigation_guard'] = {
-        'extra_distance_m': 10.0, 'speech_delay_sec': 1.0, 'clear_hold_sec': 2.0}
+        'extra_distance_m': 10.0, 'speech_delay_sec': 1.0, 'clear_hold_sec': 2.0,
+        'data_recovery_timeout_sec': 3.0, 'data_recovery_stable_sec': .5}
     destinations = [p.resolve() for p, _ in documents.values()]
     if len(set(destinations)) != len(destinations):
         raise ValueError('Output files must differ')

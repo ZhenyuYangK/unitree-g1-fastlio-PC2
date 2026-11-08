@@ -79,6 +79,10 @@ class NavigationConfigTest(unittest.TestCase):
         nav = generator.load_yaml(self.path / 'nav.yaml')
         self.assertNotIn('behavior_server', nav)
         self.assertIn('goal_checker_plugin', nav['controller_server']['ros__parameters'])
+        controller = nav['controller_server']['ros__parameters']
+        self.assertFalse(controller['goal_checker']['stateful'])
+        self.assertEqual(controller['progress_checker']['plugin'], 'g1_nav2_bringup/GoalProgressChecker')
+        self.assertEqual(set(controller['progress_checker']), {'plugin'})
         self.assertEqual(nav['recoveries_server']['ros__parameters']['recovery_plugins'], ['spin', 'wait'])
         tree = ET.parse(PACKAGE / 'behavior_trees/navigate_g1_timeout.xml')
         self.assertIsNone(tree.find('.//Spin'))

@@ -164,6 +164,12 @@ class NavigationStackTest(unittest.TestCase):
             self.assertTrue(any(abs(p.pose.position.y) > .4 for p in world.route.poses))
             self.assertEqual(world.speeches, [])
             self.assertEqual(len(world.maps), 2)
+            # Synthetic pose remains stationary. It must stay active beyond
+            # the former 20 s stall deadline, with the real Nav2 controller.
+            stationary_result = handle.get_result_async()
+            time.sleep(21.5)
+            self.assertFalse(stationary_result.done(), 'Progress checking still aborted the goal')
+            self.assertTrue(world.statuses[-1]['permit'])
             # Reproduce the field sequence: cancel, then immediately resend the
             # identical pose. Late results from the old call must stay isolated.
             for _ in range(8):
@@ -217,7 +223,9 @@ class NavigationStackTest(unittest.TestCase):
                 handle.cancel_goal_async()
                 time.sleep(.2)
             if process.poll() is None:
-                os.killpg(process.pid, signal.SIGINT)
+                # ros2 launch forwards the signal. Do not hit nodes once via
+                # their process group and a second time via their launcher.
+                process.send_signal(signal.SIGINT)
                 try:
                     process.wait(timeout=8)
                 except subprocess.TimeoutExpired:
@@ -227,8 +235,12 @@ class NavigationStackTest(unittest.TestCase):
             thread.join(timeout=3)
             world.destroy_node()
             rclpy.shutdown()
+            output.flush()
+            output.seek(0)
+            shutdown_log = output.read()
             output.close()
             directory.cleanup()
+        self.assertNotIn('exit code -11', shutdown_log, shutdown_log[-12000:])
 
 
 if __name__ == '__main__':

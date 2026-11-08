@@ -1,0 +1,6 @@
+<library path="g1_goal_progress_checker">
+  <class name="g1_nav2_bringup/GoalProgressChecker"
+         type="g1_nav2_bringup::GoalProgressChecker" base_class_type="nav2_core::ProgressChecker">
+    <description>Required Foxy progress interface; finite pose check retained, progress timeouts disabled.</description>
+  </class>
+</library>
