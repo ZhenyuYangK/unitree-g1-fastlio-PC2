@@ -104,11 +104,11 @@ controller_server:
       publish_evaluation: true
       min_vel_x: 0.0
       min_vel_y: 0.0
-      max_vel_x: 1.0
+      max_vel_x: 0.7
       max_vel_y: 0.0
       max_vel_theta: 0.4
       min_speed_xy: 0.0
-      max_speed_xy: 1.0
+      max_speed_xy: 0.7
       min_speed_theta: 0.0
       acc_lim_x: 0.2
       acc_lim_y: 0.2

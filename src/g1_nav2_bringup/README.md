@@ -34,7 +34,7 @@ Generated bridge parameters require a fresh navigation permit (0.3 s timeout)
 in addition to the existing manual and localization gates.
 Both controller and BT navigator consume `/Odometry_nav`.
 
-The source YAML describes the target limits: 1.0 m/s forward, 0.40 rad/s yaw,
+The source YAML describes the target limits: 0.7 m/s forward, 0.40 rad/s yaw,
 linear acceleration/deceleration 0.20/0.30 m/s², angular acceleration/deceleration
 4.0 rad/s², with no lateral or reverse commands. Positive lateral acceleration
 parameters support DWB's single zero lateral sample; both lateral velocity bounds

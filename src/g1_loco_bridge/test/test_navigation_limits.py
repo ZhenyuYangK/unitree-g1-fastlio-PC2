@@ -43,7 +43,7 @@ class NavigationLimitsTest(unittest.TestCase):
         self.logs = []
         self.permit = None
         self.profile = 'target' if 'target' in self._testMethodName else 'safe'
-        self.cap = 1.0 if self.profile == 'target' else 0.2
+        self.cap = 0.7 if self.profile == 'target' else 0.2
         nav = generator.navigation_parameters(generator.load_yaml(ROOT / 'src/g1_nav2_bringup/config/nav2_params.yaml'), self.profile)
         config = generator.bridge_parameters(generator.load_yaml(ROOT / 'src/g1_loco_bridge/config/g1_loco_bridge_nav2_dry_run.yaml'), nav, 'dry')
         params = config['g1_cmd_vel_dry_run']['ros__parameters']
@@ -129,6 +129,27 @@ class NavigationLimitsTest(unittest.TestCase):
 
     def test_target_profile_limits_acceleration_deceleration_and_axis_gates(self):
         self.exercise_profile()
+
+    def test_target_profile_fine_turning_raises_small_requests_above_stalled_band(self):
+        # Exercise the generated navigation config through the actual backend.
+        # In the field, 0.2 rad/s was accepted by the SDK while the robot stalled.
+        # The user reports 0.25 still stalls; test the requested 0.3 minimum.
+        cases = ((.06, .3), (.1, .3), (.2, .3), (.25, .3), (.29, .3),
+                 (.3, .3), (.35, .35), (.4, .4), (0., 0.), (-.06, -.3),
+                 (-.1, -.3), (-.2, -.3), (-.25, -.3), (-.29, -.3),
+                 (-.3, -.3), (-.35, -.35), (-.4, -.4), (.04, 0.), (-.04, 0.), (0., 0.))
+        for requested, expected in cases:
+            with self.subTest(requested=requested):
+                command = Twist()
+                command.angular.z = requested
+                start = len(self.logs)
+                self.pump(.45, command)
+                samples = self.samples(start)
+                self.assertGreaterEqual(len(samples), 3, ''.join(self.logs[start:]))
+                for _, x, y, yaw in samples[-3:]:
+                    self.assertEqual(x, 0.)
+                    self.assertEqual(y, 0.)
+                    self.assertAlmostEqual(yaw, expected, delta=.002)
 
     def test_navigation_permit_stops_immediately_and_discards_probe_commands(self):
         command = Twist()

@@ -591,7 +591,7 @@ usage() {
 说明：
   start-auto / start-auto-dry 使用无先验全局搜索；保持机器人静止。
   start-fixed / start-fixed-dry 使用 script/auto_start_pose.env 固定初值。
-  G1_NAV_PROFILE=safe（默认）限制前进 0.20 m/s；target 使用 1.0 m/s。
+  G1_NAV_PROFILE=safe（默认）限制前进 0.20 m/s；target 使用 0.7 m/s。
   更换速度档须 stop 后重新 start，Nav2 与两种桥一起生成参数。
   G1_LOCALIZATION_TIMEOUT_SEC 设置全局初始化总预算（默认180秒）。
   start-dry 只连接 DryRunBackend，不会向机器人发送真实运动命令。

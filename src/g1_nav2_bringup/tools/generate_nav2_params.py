@@ -39,7 +39,7 @@ def navigation_parameters(source, profile):
             raise ValueError('Nonfinite or nonnumeric velocity parameter: ' + key)
     if any(follow[key] != 0 for key in ('min_vel_x', 'min_vel_y', 'max_vel_y')):
         raise ValueError('Navigation requires forward-only motion without lateral velocity')
-    target = {'max_vel_x': 1.0, 'max_speed_xy': 1.0, 'max_vel_theta': 0.4,
+    target = {'max_vel_x': 0.7, 'max_speed_xy': 0.7, 'max_vel_theta': 0.4,
               'acc_lim_x': 0.2, 'decel_lim_x': -0.3, 'acc_lim_theta': 4.0, 'decel_lim_theta': -4.0}
     if any(follow[key] != value for key, value in target.items()):
         raise ValueError('Source must describe the reviewed P4 target limits')
@@ -161,7 +161,7 @@ def main():
     except (ValueError, KeyError, OSError, yaml.YAMLError) as exc:
         parser.exit(1, '导航参数生成失败: ' + str(exc) + '\n')
     print('Nav2 profile: {}; forward cap: {} m/s; odometry: /Odometry_nav'.format(
-        result['profile'], 0.2 if args.profile == 'safe' else 1.0))
+        result['profile'], 0.2 if args.profile == 'safe' else 0.7))
     for item in result['files'].values():
         print(item['path'])
 

@@ -38,7 +38,7 @@ class NavigationConfigTest(unittest.TestCase):
             self.path / 'manifest.json')
 
     def test_profiles_generate_matching_nav2_and_both_bridges(self):
-        for profile, cap in (('safe', 0.2), ('target', 1.0), ('safe', 0.2)):
+        for profile, cap in (('safe', 0.2), ('target', 0.7), ('safe', 0.2)):
             record = self.generate(profile)
             nav = generator.load_yaml(record['files']['nav']['path'])
             follow = nav['controller_server']['ros__parameters']['FollowPath']
@@ -154,7 +154,7 @@ main enable''')
             self.assertEqual(result.returncode, 0, result.stdout)
             runtime = self.path / 'runtime/navigation'
             expected = readiness.load_expected(runtime / 'navigation_config.json', 'real', profile)
-            self.assertEqual(expected['g1_cmd_vel_dry_run']['max_linear_x'], 0.2 if profile == 'safe' else 1.0)
+            self.assertEqual(expected['g1_cmd_vel_dry_run']['max_linear_x'], 0.2 if profile == 'safe' else 0.7)
             fastlio = generator.load_yaml(runtime / 'mid360_navigation.yaml')
             self.assertFalse(fastlio['/**']['ros__parameters']['pcd_save']['pcd_save_en'])
             self.assertEqual(generator.load_yaml(runtime / 'map_runtime.yaml')['image'], str(maps / 'map_multilayer.pgm'))

@@ -14,7 +14,7 @@ g1_cmd_vel_dry_run:
     command_timeout_sec: 0.5
     control_period_sec: 0.05
     report_period_sec: 2.0
-    max_linear_x: 1.0
+    max_linear_x: 0.7
     max_linear_y: 0.05
     max_angular_z: 0.4
     reject_abs_linear_x: 1.6
@@ -27,4 +27,4 @@ g1_cmd_vel_dry_run:
     max_angular_accel: 4.0
     max_angular_decel: 4.0
     min_effective_linear_x: 0.2
-    min_effective_angular_z: 0.4
+    min_effective_angular_z: 0.3
