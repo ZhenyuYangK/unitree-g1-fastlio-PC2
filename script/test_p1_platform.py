@@ -41,11 +41,14 @@ class EnvironmentTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='g1 p1 ')
         self.root = Path(self.temp.name)
+        self.isolated_config = self.root / 'empty.env'
+        self.isolated_config.write_text('')
 
     def tearDown(self):
         self.temp.cleanup()
 
     def bash(self, code, **env):
+        env.setdefault('G1_LOCAL_ENV', str(self.isolated_config))
         return subprocess.run(['bash', '--noprofile', '--norc', '-c', code, '_', str(SCRIPT / 'g1_env.sh')],
                               env=clean_env(G1_WS=str(self.root), **env),
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -261,6 +264,42 @@ class ProcessTests(unittest.TestCase):
         archives = list(self.root.glob('worker.*.log'))
         self.assertEqual(len(archives), 1)
         self.assertIn('NDT success', archives[0].read_text())
+
+    def test_launcher_forwards_one_sigint_to_children(self):
+        # A launch-like parent forwards after a delay. Group SIGINT would hit
+        # the child once directly and once again through the parent.
+        count = self.root / 'signals.txt'
+        ready = self.root / 'ready'
+        child = ('import signal,time; from pathlib import Path\n'
+                 'received=[]\n'
+                 'def interrupt(*_):\n'
+                 ' received.append(time.monotonic())\n'
+                 ' Path({!r}).write_text(str(len(received)))\n'
+                 'signal.signal(signal.SIGINT,interrupt)\n'
+                 'Path({!r}).touch()\n'
+                 'while not received or time.monotonic()-received[0]<.4: time.sleep(.01)\n'
+                 ).format(str(count), str(ready))
+        launcher = self.root / 'ros2'
+        launcher.write_text('#!{}\n'.format(sys.executable) +
+                            'import subprocess,signal,time,sys,os\n' +
+                            'child=subprocess.Popen([sys.executable,"-c",{!r}])\n'.format(child) +
+                            'def interrupt(*_):\n'
+                            ' time.sleep(.1)\n'
+                            ' os.kill(child.pid,signal.SIGINT)\n'
+                            'signal.signal(signal.SIGINT,interrupt)\n'
+                            'child.wait()\n')
+        launcher.chmod(0o700)
+        g1_process.start(self.record, 'launch', self.root/'launch.log',
+                         [str(launcher), 'launch', 'mock'])
+        item = g1_process.read_records(self.record)[0]
+        self.groups.append(item['pgid'])
+        deadline = time.monotonic()+2.
+        while not ready.exists() and time.monotonic()<deadline:
+            time.sleep(.01)
+        self.assertTrue(ready.exists())
+        g1_process.stop(self.record)
+        self.assertEqual(count.read_text(), '1')
+        self.assertFalse(g1_process.members(item))
 
     def test_reused_pid_or_changed_command_is_rejected(self):
         item = self.launch()

@@ -158,9 +158,22 @@ def stop(path):
         members(record)
     for sig, seconds in ((signal.SIGINT, 3.0), (signal.SIGTERM, 5.0)):
         for record in reversed(records):
-            for pgid in sorted({item['pgid'] for item in members(record)}, reverse=True):
+            owned = members(record)
+            argv = record.get('argv', [])
+            # ros2 launch forwards SIGINT to its managed nodes. Signaling its
+            # whole group as well can deliver SIGINT twice during destructors.
+            # If the verified launcher has already exited, stop the remaining
+            # owned groups; retain group SIGTERM as the bounded fallback.
+            launcher = (len(argv) >= 2 and Path(argv[0]).name == 'ros2' and
+                        argv[1] == 'launch' and any(item['pid'] == record['pid'] for item in owned))
+            targets = [record['pid']] if sig == signal.SIGINT and launcher else sorted(
+                {item['pgid'] for item in owned}, reverse=True)
+            for target in targets:
                 try:
-                    os.killpg(pgid, sig)
+                    if sig == signal.SIGINT and launcher:
+                        os.kill(target, sig)
+                    else:
+                        os.killpg(target, sig)
                 except ProcessLookupError:
                     pass
         deadline = time.monotonic() + seconds
